@@ -38,7 +38,7 @@ const KB_TEXT_PREVIEW_EXTENSIONS = new Set(['txt', 'md', 'markdown', 'mdx', 'csv
 const DEPARTMENTS = [
   { id: 'CEO', name: 'CEO 总智能体', icon: Building2, summary: '跨部门总控与任务拆解' },
   { id: 'MARKET', name: '市场部部长', icon: BarChart3, summary: '需求分析与宣传内容编排' },
-  { id: 'TECH', name: '技术部部长', icon: Code2, summary: '产品、开发、测试、运维编排' },
+  { id: 'TECH', name: '星核StarCore', icon: Code2, summary: '产品、开发、测试、运维编排' },
   { id: 'SALES', name: '业务部部长', icon: Briefcase, summary: '服务咨询、方案设计、实施计划' },
   { id: 'REPAIR', name: '运维部部长', icon: Wrench, summary: '派单、问题诊断、现场执行' },
   { id: 'CS', name: '客服部部长', icon: Headphones, summary: 'FAQ、应急响应、人工兜底' },
@@ -48,7 +48,7 @@ const DEPARTMENTS = [
 const DEPARTMENT_LABEL_MAP = {
   CEO: 'CEO 总智能体',
   MARKET: '市场部部长',
-  TECH: '技术部部长',
+  TECH: '星核StarCore',
   SALES: '业务部部长',
   REPAIR: '运维部部长',
   CS: '客服部部长',
@@ -57,7 +57,7 @@ const DEPARTMENT_LABEL_MAP = {
 
 const LEAD_TO_DEPARTMENT_MAP = {
   市场部部长: 'MARKET',
-  技术部部长: 'TECH',
+  星核StarCore: 'TECH',
   业务部部长: 'SALES',
   运维部部长: 'REPAIR',
   客服部部长: 'CS',

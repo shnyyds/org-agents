@@ -84,27 +84,27 @@ class TechLeadAgent(DepartmentLeadAgent):
             return {
                 "sub_plan": state["sub_plan"],
                 "sub_plan_step": 0,
-                "active_agent": "技术部部长",
-                "messages": [AIMessage(content=f"👨‍💼 技术部部长：收到！由于您直接指挥【{target_agent}】，我将立即为您转接该智能体。")],
-                "execution_log": [{"agent": "技术部部长", "status": f"直接转接至子智能体: {target_agent}", "department": "TECH"}]
+                "active_agent": "星核StarCore",
+                "messages": [AIMessage(content=f"👨‍💼 星核StarCore：收到！由于您直接指挥【{target_agent}】，我将立即为您转接该智能体。")],
+                "execution_log": [{"agent": "星核StarCore", "status": f"直接转接至子智能体: {target_agent}", "department": "TECH"}]
             }
 
         # Get the original user query
         query = get_last_user_message(state, "No query found")
         intent_analysis = state.get("intent_analysis", {})
-        
+
         logger.info(f"Tech Lead: Dynamically planning for query: {query}")
-        
+
         system_prompt = f"""
-        你是一位公共服务技术部部长。你的任务是根据用户的原始指令和 CEO 的意图分析，动态编排技术部内部的执行流程。
-        
+        你是星核StarCore，公共服务技术部的核心调度者。你的任务是根据用户的原始指令和 CEO 的意图分析，动态编排技术部内部的执行流程。
+
         CEO 意图分析：{json.dumps(intent_analysis, ensure_ascii=False)}
-        
+
         可选子智能体：
-        - product: 产品岗 (PRD产出/需求分析)
-        - developer: 开发岗 (核心代码编写)
-        - tester: 检测岗 (代码质量/安全检测)
-        - devops: 运维岗 (部署/上线)
+        - product: 蓝图BlueForm (PRD产出/需求分析)
+        - developer: 灵码SmartCode (核心代码编写)
+        - tester: 检博士CheckDoc (代码质量/安全检测)
+        - devops: 运小盾OpsShield (部署/上线)
         
         注意：如果用户明确说明不需要某个岗位（如“不需要产品”、“不测试”），请在 sub_plan 中排除它。
         
@@ -114,7 +114,7 @@ class TechLeadAgent(DepartmentLeadAgent):
             "reason": "编排理由"
         }}
         """
-        
+
         messages = [
             SystemMessage(content=system_prompt),
             HumanMessage(content=query)
@@ -128,14 +128,14 @@ class TechLeadAgent(DepartmentLeadAgent):
                 prompt=messages,
                 state=state,
                 node_name="tech_lead_plan",
-                active_agent="技术部部长",
+                active_agent="星核StarCore",
             )
             content = response_text.strip()
             logger.info(f"Tech Lead: LLM Raw Response: {content}")
-            
+
             if "```json" in content:
                 content = content.split("```json")[1].split("```")[0].strip()
-            
+
             plan_data = json.loads(content)
             sub_plan = plan_data.get("sub_plan", ["product", "developer", "tester", "devops"])
             reason = plan_data.get("reason", "标准技术实现流程")
@@ -145,7 +145,7 @@ class TechLeadAgent(DepartmentLeadAgent):
             sub_plan = ["developer"] if "只要写代码" in query else ["product", "developer", "tester", "devops"]
             reason = "解析失败，触发安全降级编排"
 
-        thought_msg = f"👨‍💼 技术部部长：\n收到 CEO 任务。我已完成内部资源评估：\n"
+        thought_msg = f"👨‍💼 星核StarCore：\n收到 CEO 任务。我已完成内部资源评估：\n"
         thought_msg += f"1. 执行路径：{format_sub_agent_plan(sub_plan)}\n"
         thought_msg += f"2. 编排策略：{reason}\n"
         thought_msg += "正在启动部门内部流水线..."
@@ -154,8 +154,8 @@ class TechLeadAgent(DepartmentLeadAgent):
             "sub_plan": sub_plan,
             "sub_plan_step": 0,
             "messages": [AIMessage(content=thought_msg)],
-            "active_agent": "技术部部长",
-            "execution_log": [{"agent": "技术部部长", "status": f"制定内部子计划: {format_sub_agent_plan(sub_plan)}", "department": "TECH"}],
+            "active_agent": "星核StarCore",
+            "execution_log": [{"agent": "星核StarCore", "status": f"制定内部子计划: {format_sub_agent_plan(sub_plan)}", "department": "TECH"}],
             "current_department": "TECH"
         }
 

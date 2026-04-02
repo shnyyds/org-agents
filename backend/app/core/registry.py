@@ -7,10 +7,10 @@ DEPARTMENT_SUB_AGENTS = {
         {"id": "generate_content", "name": "宣传推广专员", "description": "负责多渠道文案与宣传内容生成"}
     ],
     "TECH": [
-        {"id": "product", "name": "产品岗智能体", "description": "需求解析与 PRD/UI 输出"},
-        {"id": "developer", "name": "开发岗智能体", "description": "多语言代码编写与实现"},
-        {"id": "tester", "name": "检测岗智能体", "description": "安全/规范/功能/兼容性四维检测"},
-        {"id": "devops", "name": "运维部署智能体", "description": "分布式部署与全量监控"}
+        {"id": "product", "name": "蓝图BlueForm", "description": "需求解析与 PRD/UI 输出"},
+        {"id": "developer", "name": "灵码SmartCode", "description": "多语言代码编写与实现"},
+        {"id": "tester", "name": "检博士CheckDoc", "description": "安全/规范/功能/兼容性四维检测"},
+        {"id": "devops", "name": "运小盾OpsShield", "description": "分布式部署与全量监控"}
     ],
     "SALES": [
         {"id": "lead_gen", "name": "服务咨询专员", "description": "服务需求分析与方案建议"},

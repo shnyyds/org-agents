@@ -364,13 +364,13 @@ async def chat_stream(input: UserInput):
         current_state = initial_state.copy()
 
         friendly_names = {
-            "analyze_intent": "CEO 总智能体", "product": "产品岗智能体", "developer": "开发岗智能体",
-            "tester": "检测岗智能体", "devops": "运维部署智能体", "analyze_industry": "行业分析大师",
+            "analyze_intent": "CEO 总智能体", "product": "蓝图BlueForm", "developer": "灵码SmartCode",
+            "tester": "检博士CheckDoc", "devops": "运小盾OpsShield", "analyze_industry": "行业分析大师",
             "generate_content": "宣传推广大师", "lead_gen": "获客智能体", "quote": "业务报价智能体",
             "cad": "CAD设计智能体", "manager": "派单经理智能体", "master": "故障识别大师",
             "worker": "现场执行智能体", "faq": "FAQ智能助手", "emergency": "救援调度智能体",
             "human": "人工客服座席", "device": "设备健康智能体", "repair_portal": "自主报修入口",
-            "tech_lead_plan": "技术部部长", "market_lead_plan": "市场部部长", "sales_lead_plan": "销售部部长",
+            "tech_lead_plan": "星核StarCore", "market_lead_plan": "市场部部长", "sales_lead_plan": "销售部部长",
             "repair_lead_plan": "维修部部长", "cs_lead_plan": "客服部部长", "user_lead_plan": "用户端部长"
         }
         streamable_nodes = {
