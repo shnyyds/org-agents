@@ -1,0 +1,114 @@
+{
+  "knowledge_bases": [
+    {
+      "id": "2b12593fe1",
+      "name": "2",
+      "icon": "🤖",
+      "description": "2",
+      "permission": "只有我",
+      "segment_mode": "general",
+      "index_mode": "high_quality",
+      "retrieval_mode": "hybrid",
+      "chunk_config": {
+        "separator": "\n\n",
+        "chunk_size": 800,
+        "chunk_overlap": 100
+      },
+      "retrieval_config": {
+        "semantic_weight": 0.7,
+        "keyword_weight": 0.3,
+        "top_k": 5,
+        "score_threshold": 0.2,
+        "embedding_model": "text-embedding-v4"
+      },
+      "collection_name": "kb_2_2b12593fe1",
+      "created_at": "2026-03-31 09:59",
+      "updated_at": "2026-03-31 09:59",
+      "documents": [],
+      "recall_history": []
+    },
+    {
+      "id": "66384f8882",
+      "name": "1",
+      "icon": "🤖",
+      "description": "1",
+      "permission": "只有我",
+      "segment_mode": "general",
+      "index_mode": "high_quality",
+      "retrieval_mode": "hybrid",
+      "chunk_config": {
+        "separator": "\n\n",
+        "chunk_size": 800,
+        "chunk_overlap": 100
+      },
+      "retrieval_config": {
+        "semantic_weight": 0.7,
+        "keyword_weight": 0.3,
+        "top_k": 3,
+        "score_threshold": 0.2,
+        "embedding_model": "text-embedding-v4"
+      },
+      "collection_name": "kb_1_66384f8882",
+      "created_at": "2026-03-31 09:48",
+      "updated_at": "2026-03-31 15:01",
+      "documents": [
+        {
+          "id": "0d78903b59",
+          "name": "README.md",
+          "segment_mode": "通用",
+          "characters": 3850,
+          "chunks": 7,
+          "recall_count": 28,
+          "uploaded_at": "2026-03-31 10:14",
+          "status": "可用",
+          "separator": "# ",
+          "chunk_size": 800,
+          "chunk_overlap": 100
+        }
+      ],
+      "recall_history": [
+        {
+          "query": "知识库有哪些东西",
+          "tested_at": "2026-03-31 15:01",
+          "results_count": 3
+        },
+        {
+          "query": "核心架构设计",
+          "tested_at": "2026-03-31 10:58",
+          "results_count": 3
+        },
+        {
+          "query": "核心架构设计",
+          "tested_at": "2026-03-31 10:58",
+          "results_count": 3
+        },
+        {
+          "query": "第一阶段任务是什么",
+          "tested_at": "2026-03-31 10:58",
+          "results_count": 3
+        },
+        {
+          "query": "ceo",
+          "tested_at": "2026-03-31 10:32",
+          "results_count": 3
+        },
+        {
+          "query": "ceo",
+          "tested_at": "2026-03-31 10:26",
+          "results_count": 3
+        },
+        {
+          "query": "ceo",
+          "tested_at": "2026-03-31 10:25",
+          "results_count": 5
+        },
+        {
+          "query": "ceo",
+          "tested_at": "2026-03-31 10:18",
+          "results_count": 5
+        }
+      ],
+      "vector_size": 1024
+    }
+  ]
+}

@@ -1,0 +1,1102 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>行业多智能体系统架构图（完整详细版）</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: #0e1018;
+  color: #dde2f0;
+  padding: 28px 20px 60px;
+  min-width: 1400px;
+}
+h1 {
+  text-align: center;
+  font-size: 20px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 4px;
+  margin-bottom: 4px;
+}
+.main-sub {
+  text-align: center;
+  font-size: 11px;
+  color: #444;
+  letter-spacing: 2px;
+  margin-bottom: 30px;
+}
+
+/* ---- ENTRY ---- */
+.entry-wrap { text-align: center; margin-bottom: 0; }
+.entry-pill {
+  display: inline-block;
+  background: #181c2a;
+  border: 1.5px solid #353a55;
+  border-radius: 40px;
+  padding: 8px 36px;
+  font-size: 13px;
+  color: #8899cc;
+  letter-spacing: 1px;
+}
+.entry-pill small { display: block; font-size: 10px; color: #404868; margin-top: 2px; }
+
+/* ---- CONNECTOR ---- */
+.conn { width: 2px; background: #252840; margin: 0 auto; position: relative; }
+.conn::after {
+  content: '';
+  position: absolute;
+  bottom: -5px; left: 50%;
+  transform: translateX(-50%);
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 6px solid #353a55;
+}
+.conn-label {
+  text-align: center;
+  font-size: 10px;
+  color: #333;
+  letter-spacing: 1.5px;
+  padding: 4px 0;
+}
+
+/* ---- CEO ---- */
+.ceo-box {
+  max-width: 640px;
+  margin: 0 auto;
+  background: #16133a;
+  border: 1.5px solid #5b50c8;
+  border-radius: 12px;
+  padding: 14px 24px;
+  text-align: center;
+}
+.ceo-title { font-size: 15px; font-weight: 700; color: #b8aaff; letter-spacing: 3px; }
+.ceo-desc  { font-size: 11px; color: #6a60a0; margin-top: 5px; line-height: 1.7; }
+
+/* ---- DEPT ROW ---- */
+.dept-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 0;
+  align-items: flex-start;
+}
+
+/* ---- DEPT BLOCK ---- */
+.dept {
+  flex: 1;
+  min-width: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.dept-head {
+  padding: 9px 12px;
+  text-align: center;
+}
+.dept-head .d-title { font-size: 13px; font-weight: 700; letter-spacing: 2px; }
+.dept-head .d-role  { font-size: 10px; margin-top: 2px; opacity: 0.65; }
+
+/* ---- AGENT BLOCK ---- */
+.agent {
+  border-top: 1px solid rgba(255,255,255,0.05);
+  padding: 9px 11px;
+}
+.agent-title {
+  font-size: 11px;
+  font-weight: 700;
+  margin-bottom: 5px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.seq {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px; height: 15px;
+  border-radius: 50%;
+  font-size: 8px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.agent-body { font-size: 10px; line-height: 1.65; }
+.agent-body p { margin-bottom: 3px; }
+.agent-body .lbl {
+  font-size: 9px;
+  font-weight: 700;
+  opacity: 0.55;
+  letter-spacing: 0.5px;
+  margin-top: 5px;
+  margin-bottom: 1px;
+}
+.tags { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
+.tag {
+  font-size: 9px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+/* ---- KB FOOTER ---- */
+.kb-footer {
+  padding: 7px 11px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+  font-size: 9px;
+  line-height: 1.6;
+  opacity: 0.5;
+}
+.kb-footer b { font-size: 9px; font-weight: 700; display: block; margin-bottom: 1px; opacity: 0.7; }
+
+/* ---- COLORS ---- */
+/* market teal */
+.m  { background: #081e18; border: 1.5px solid #0f6e56; }
+.mh { background: #0b2a20; border-bottom: 1px solid #0f6e56; }
+.mh .d-title { color: #3dcaa0; }
+.m .agent-title { color: #3dcaa0; }
+.m .seq { background: #0f6e56; color: #fff; }
+.m .tag-tool { background: rgba(29,158,117,0.15); color: #5dcaa5; }
+.m .tag-out  { background: rgba(29,158,117,0.2); color: #7fddb8; }
+.m .tag-kb   { background: rgba(29,158,117,0.1); color: #4aaa88; }
+.m .tag-perm { background: rgba(200,150,80,0.12); color: #c8a060; }
+
+/* tech blue */
+.t  { background: #071525; border: 1.5px solid #185fa5; }
+.th { background: #0a1e38; border-bottom: 1px solid #185fa5; }
+.th .d-title { color: #70aae0; }
+.t .agent-title { color: #70aae0; }
+.t .seq { background: #185fa5; color: #fff; }
+.t .tag-tool { background: rgba(24,95,165,0.2); color: #70aae0; }
+.t .tag-out  { background: rgba(24,95,165,0.25); color: #90c0f0; }
+.t .tag-kb   { background: rgba(24,95,165,0.12); color: #5a90c8; }
+.t .tag-perm { background: rgba(200,150,80,0.12); color: #c8a060; }
+
+/* sales amber */
+.s  { background: #1e1205; border: 1.5px solid #9a6010; }
+.sh { background: #2a1a08; border-bottom: 1px solid #9a6010; }
+.sh .d-title { color: #e09030; }
+.s .agent-title { color: #e09030; }
+.s .seq { background: #9a6010; color: #fff; }
+.s .tag-tool { background: rgba(186,117,23,0.18); color: #d08828; }
+.s .tag-out  { background: rgba(186,117,23,0.22); color: #f0aa48; }
+.s .tag-kb   { background: rgba(186,117,23,0.12); color: #b07820; }
+.s .tag-perm { background: rgba(200,150,80,0.12); color: #c8a060; }
+
+/* repair coral */
+.r  { background: #1e0c06; border: 1.5px solid #883010; }
+.rh { background: #2a1008; border-bottom: 1px solid #883010; }
+.rh .d-title { color: #d07858; }
+.r .agent-title { color: #d07858; }
+.r .seq { background: #883010; color: #fff; }
+.r .tag-tool { background: rgba(153,60,29,0.2); color: #d07858; }
+.r .tag-out  { background: rgba(153,60,29,0.25); color: #e09878; }
+.r .tag-kb   { background: rgba(153,60,29,0.12); color: #b05838; }
+.r .tag-perm { background: rgba(200,150,80,0.12); color: #c8a060; }
+
+/* cs pink */
+.c  { background: #1e0810; border: 1.5px solid #882040; }
+.ch { background: #2a0c18; border-bottom: 1px solid #882040; }
+.ch .d-title { color: #d06080; }
+.c .agent-title { color: #d06080; }
+.c .seq { background: #882040; color: #fff; }
+.c .tag-tool { background: rgba(153,53,86,0.2); color: #d06080; }
+.c .tag-out  { background: rgba(153,53,86,0.25); color: #e080a0; }
+.c .tag-kb   { background: rgba(153,53,86,0.12); color: #b04060; }
+.c .tag-perm { background: rgba(200,150,80,0.12); color: #c8a060; }
+
+/* user gray */
+.u  { background: #141414; border: 1.5px solid #404040; }
+.uh { background: #1c1c1c; border-bottom: 1px solid #404040; }
+.uh .d-title { color: #909090; }
+.u .agent-title { color: #909090; }
+.u .seq { background: #505050; color: #fff; }
+.u .tag-tool { background: rgba(100,100,100,0.2); color: #909090; }
+.u .tag-out  { background: rgba(100,100,100,0.2); color: #a0a0a0; }
+.u .tag-kb   { background: rgba(100,100,100,0.12); color: #707070; }
+.u .tag-perm { background: rgba(200,150,80,0.12); color: #c8a060; }
+
+/* ---- CROSS FLOW ---- */
+.cross-section {
+  margin-top: 16px;
+  background: #0d0f1a;
+  border: 1px solid #1e2235;
+  border-radius: 10px;
+  padding: 16px 18px;
+}
+.cs-title {
+  font-size: 10px;
+  font-weight: 700;
+  color: #383e58;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #1a1e2e;
+}
+.flow-row {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.flow-row:last-child { margin-bottom: 0; }
+.fs {
+  background: #13162a;
+  border: 1px solid #222840;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 10px;
+  text-align: center;
+  min-width: 80px;
+}
+.fs .fn { font-size: 11px; font-weight: 700; margin-bottom: 1px; }
+.fs .fa { font-size: 9px; color: #555; }
+.fa-arr { font-size: 13px; color: #2a2e48; padding: 0 5px; flex-shrink: 0; }
+.fs.ceo-s { border-color: #5b50c8; } .fs.ceo-s .fn { color: #b8aaff; }
+.fs.mkt-s { border-color: #0f6e56; } .fs.mkt-s .fn { color: #3dcaa0; }
+.fs.sal-s { border-color: #9a6010; } .fs.sal-s .fn { color: #e09030; }
+.fs.tec-s { border-color: #185fa5; } .fs.tec-s .fn { color: #70aae0; }
+.fs.rep-s { border-color: #883010; } .fs.rep-s .fn { color: #d07858; }
+.fs.cs-s  { border-color: #882040; } .fs.cs-s  .fn { color: #d06080; }
+
+/* ---- INFRA ---- */
+.infra-wrap {
+  margin-top: 12px;
+  background: #090b14;
+  border: 1px dashed #1a1e30;
+  border-radius: 10px;
+  padding: 14px 18px;
+}
+.infra-title {
+  font-size: 10px;
+  color: #303448;
+  letter-spacing: 2px;
+  font-weight: 700;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.infra-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+.infra-card {
+  background: #0e1020;
+  border: 1px solid #181c30;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 9px;
+  color: #404468;
+  line-height: 1.65;
+}
+.infra-card b { display: block; font-size: 10px; color: #353858; margin-bottom: 3px; font-weight: 700; }
+
+/* cross link badge */
+.xlink {
+  display: inline-block;
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid rgba(220,100,80,0.25);
+  background: rgba(220,100,80,0.08);
+  color: #d07060;
+  margin-top: 2px;
+  margin-right: 2px;
+}
+
+.divider-line {
+  height: 1px;
+  background: linear-gradient(to right, transparent, #1e2235, transparent);
+  margin: 6px 0;
+}
+</style>
+</head>
+<body>
+
+<h1>行业多智能体系统架构图</h1>
+<div class="main-sub">电梯行业 · CEO双层编排 · 六大部门 · 完整详细版</div>
+
+<!-- 入口 -->
+<div class="entry-wrap">
+  <div class="entry-pill">
+    入口层（交互平台）
+    <small>飞书 &nbsp;·&nbsp; 微信 &nbsp;·&nbsp; 钉钉 &nbsp;·&nbsp; Web端</small>
+  </div>
+</div>
+<div class="conn" style="height:20px; margin-top:0;"></div>
+
+<!-- CEO -->
+<div class="ceo-box">
+  <div class="ceo-title">CEO 总智能体</div>
+  <div class="ceo-desc">
+    接收任务 → 解析意图 → 判断涉及部门 → 制定执行顺序（串行/并行）→ 下发编排指令给各部门长 → 汇总各部回传结果 → 全局数据可视化 → 推送给管理层<br>
+    核心能力：全流程数据看板 · 智能体权限管理 · 跨板块数据协同 · 运行状态监控
+  </div>
+</div>
+<div class="conn-label">↓ CEO 编排指令下发：参与部门 · 执行顺序 · 各部门输入/输出定义 ↓</div>
+<div class="conn" style="height:16px;"></div>
+
+<!-- 6大部门 -->
+<div class="dept-row">
+
+  <!-- ========== 市场部 ========== -->
+  <div class="dept m">
+    <div class="dept-head mh">
+      <div class="d-title">市场部</div>
+      <div class="d-role">部门长智能体 · 内部编排</div>
+    </div>
+
+    <!-- 行业分析大师 -->
+    <div class="agent">
+      <div class="agent-title"><span class="seq">1</span>行业分析大师</div>
+      <div class="agent-body">
+        <p class="lbl">职能描述</p>
+        <p>对电梯行业进行全维度分析：行业整体态势、市场规模、产品占有率、增长率、竞争对手动态、产品参数对比、价格体系、市场份额分布</p>
+        <p class="lbl">专属工具</p>
+        <div class="tags">
+          <span class="tag tag-tool">网络搜索工具</span>
+          <span class="tag tag-tool">行业数据抓取</span>
+          <span class="tag tag-tool">竞品监控工具</span>
+          <span class="tag tag-tool">数据可视化图表</span>
+          <span class="tag tag-tool">市场报告生成</span>
+          <span class="tag tag-tool">行业动态追踪</span>
+        </div>
+        <p class="lbl">知识库</p>
+        <div class="tags">
+          <span class="tag tag-kb">电梯行业标准</span>
+          <span class="tag tag-kb">历史市场报告</span>
+          <span class="tag tag-kb">竞品参数数据库</span>
+          <span class="tag tag-kb">价格体系文档</span>
+        </div>
+        <p class="lbl">输出物</p>
+        <div class="tags">
+          <span class="tag tag-out">行业分析图表</span>
+          <span class="tag tag-out">竞品对比报告</span>
+          <span class="tag tag-out">市场趋势报告</span>
+        </div>
+        <p class="lbl">权限</p>
+        <div class="tags"><span class="tag tag-perm">市场部内部查阅</span></div>
+      </div>
+    </div>
+
+    <!-- 宣传推广大师 -->
+    <div class="agent">
+      <div class="agent-title"><span class="seq">2</span>宣传推广大师</div>
+      <div class="agent-body">
+        <p class="lbl">职能描述</p>
+        <p>依据产品定位（高端·智能·安全）生成适配多渠道的宣传内容，包括短视频脚本、朋友圈文案、公众号推文、展会宣传语等</p>
+        <p class="lbl">专属工具</p>
+        <div class="tags">
+          <span class="tag tag-tool">多渠道文案生成</span>
+          <span class="tag tag-tool">短视频脚本工具</span>
+          <span class="tag tag-tool">图文排版工具</span>
+          <span class="tag tag-tool">爆款标题生成</span>
+          <span class="tag tag-tool">SEO关键词工具</span>
+        </div>
+        <p class="lbl">知识库</p>
+        <div class="tags">
+          <span class="tag tag-kb">品牌手册</span>
+          <span class="tag tag-kb">产品定位文档</span>
+          <span class="tag tag-kb">往期爆款案例</span>
+          <span class="tag tag-kb">目标客户画像</span>
+        </div>
+        <p class="lbl">输出物</p>
+        <div class="tags">
+          <span class="tag tag-out">15-60秒短视频脚本</span>
+          <span class="tag tag-out">朋友圈文案</span>
+          <span class="tag tag-out">公众号推文</span>
+          <span class="tag tag-out">展会宣传语</span>
+        </div>
+        <p class="lbl">数据依赖</p>
+        <p style="font-size:9px; color:#3a6a50; margin-top:2px;">← 接收行业分析大师的分析结果作为内容创作依据</p>
+      </div>
+    </div>
+
+    <div class="kb-footer">
+      <b>共享知识库</b>
+      产品技术参数 · 价格体系 · 竞品数据库 · 行业白皮书 · 品牌素材库
+    </div>
+  </div>
+
+  <!-- ========== 技术部 ========== -->
+  <div class="dept t">
+    <div class="dept-head th">
+      <div class="d-title">技术部</div>
+      <div class="d-role">部门长智能体 · 内部编排</div>
+    </div>
+
+    <!-- 产品岗 -->
+    <div class="agent">
+      <div class="agent-title"><span class="seq">1</span>产品岗智能体</div>
+      <div class="agent-body">
+        <p class="lbl">职能描述</p>
+        <p>明确产品功能边界与技术要求，输出标准化产品文档，针对文档设置分级访问权限：内部完整版 / 外部脱敏版</p>
+        <p class="lbl">专属工具</p>
+        <div class="tags">
+          <span class="tag tag-tool">PRD文档生成</span>
+          <span class="tag tag-tool">UI/UE设计辅助</span>
+          <span class="tag tag-tool">需求拆解工具</span>
+          <span class="tag tag-tool">原型草图生成</span>
+          <span class="tag tag-tool">文档版本管理</span>
+        </div>
+        <p class="lbl">知识库</p>
+        <div class="tags">
+          <span class="tag tag-kb">产品规范库</span>
+          <span class="tag tag-kb">电梯行业标准</span>
+          <span class="tag tag-kb">历史PRD文档</span>
+        </div>
+        <p class="lbl">输出物</p>
+        <div class="tags">
+          <span class="tag tag-out">PRD需求文档</span>
+          <span class="tag tag-out">产品方案</span>
+          <span class="tag tag-out">产品说明书</span>
+          <span class="tag tag-out">UI/UE设计页面</span>
+        </div>
+        <p class="lbl">权限</p>
+        <div class="tags">
+          <span class="tag tag-perm">内部完整查看</span>
+          <span class="tag tag-perm">外部仅脱敏版</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 开发岗 -->
+    <div class="agent">
+      <div class="agent-title"><span class="seq">2</span>开发岗智能体</div>
+      <div class="agent-body">
+        <p class="lbl">职能描述</p>
+        <p>针对Java、安卓、前端、后端、Linux各开发岗位分配不同开发工具，按PRD进行代码开发</p>
+        <p class="lbl">专属工具（按岗位分配）</p>
+        <div class="tags">
+          <span class="tag tag-tool">Java开发工具</span>
+          <span class="tag tag-tool">Android Studio</span>
+          <span class="tag tag-tool">前端框架工具</span>
+          <span class="tag tag-tool">后端API工具</span>
+          <span class="tag tag-tool">Linux命令工具</span>
+          <span class="tag tag-tool">代码补全生成</span>
+          <span class="tag tag-tool">接口文档生成</span>
+        </div>
+        <p class="lbl">知识库</p>
+        <div class="tags">
+          <span class="tag tag-kb">企业代码规范</span>
+          <span class="tag tag-kb">API文档库</span>
+          <span class="tag tag-kb">开发框架文档</span>
+        </div>
+        <p class="lbl">输出物</p>
+        <div class="tags">
+          <span class="tag tag-out">Java/Android代码</span>
+          <span class="tag tag-out">前后端代码</span>
+          <span class="tag tag-out">Linux脚本</span>
+        </div>
+        <p class="lbl">权限</p>
+        <div class="tags"><span class="tag tag-perm">各岗位专属工具权限</span></div>
+      </div>
+    </div>
+
+    <!-- 检测岗 -->
+    <div class="agent">
+      <div class="agent-title"><span class="seq">3</span>检测岗智能体</div>
+      <div class="agent-body">
+        <p class="lbl">职能描述</p>
+        <p>对Java、安卓、前端、后端等各类代码进行自动化检测，覆盖四大维度，匹配企业自身代码标准与行业最高标准</p>
+        <p class="lbl">检测维度</p>
+        <div class="tags">
+          <span class="tag tag-out">代码安全性</span>
+          <span class="tag tag-out">代码规范性</span>
+          <span class="tag tag-out">功能完整性</span>
+          <span class="tag tag-out">兼容性</span>
+        </div>
+        <p class="lbl">专属工具</p>
+        <div class="tags">
+          <span class="tag tag-tool">静态代码分析</span>
+          <span class="tag tag-tool">自动化测试</span>
+          <span class="tag tag-tool">安全漏洞扫描</span>
+          <span class="tag tag-tool">兼容性测试</span>
+          <span class="tag tag-tool">检测报告生成</span>
+        </div>
+        <p class="lbl">知识库</p>
+        <div class="tags">
+          <span class="tag tag-kb">企业代码标准</span>
+          <span class="tag tag-kb">行业最高标准</span>
+          <span class="tag tag-kb">历史缺陷库</span>
+        </div>
+        <p class="lbl">输出物</p>
+        <div class="tags">
+          <span class="tag tag-out">代码检测报告</span>
+          <span class="tag tag-out">漏洞清单</span>
+          <span class="tag tag-out">修复建议</span>
+        </div>
+        <p style="font-size:9px; color:#2a5080; margin-top:3px;">← 接收开发岗代码 → 检测合格后流转运维部署</p>
+      </div>
+    </div>
+
+    <!-- 运维部署岗 -->
+    <div class="agent">
+      <div class="agent-title"><span class="seq">4</span>运维部署智能体</div>
+      <div class="agent-body">
+        <p class="lbl">职能描述</p>
+        <p>适配企业多服务器、多部门服务体系，支持分布式部署，确保各业务节点应用运行同步、稳定</p>
+        <p class="lbl">专属工具</p>
+        <div class="tags">
+          <span class="tag tag-tool">CI/CD流水线</span>
+          <span class="tag tag-tool">Docker容器管理</span>
+          <span class="tag tag-tool">Linux服务器管理</span>
+          <span class="tag tag-tool">日志监控工具</span>
+          <span class="tag tag-tool">告警推送工具</span>
+          <span class="tag tag-tool">多节点同步工具</span>
+        </div>
+        <p class="lbl">知识库</p>
+        <div class="tags">
+          <span class="tag tag-kb">服务器配置文档</span>
+          <span class="tag tag-kb">多部门服务拓扑</span>
+          <span class="tag tag-kb">部署历史记录</span>
+        </div>
+        <p class="lbl">输出物</p>
+        <div class="tags">
+          <span class="tag tag-out">部署报告</span>
+          <span class="tag tag-out">运行状态报告</span>
+          <span class="tag tag-out">告警通知</span>
+        </div>
+        <p class="lbl">权限</p>
+        <div class="tags"><span class="tag tag-perm">运维岗专属</span></div>
+      </div>
+    </div>
+
+    <div class="kb-footer">
+      <b>共享知识库</b>
+      代码规范库 · 技术图纸库 · 行业标准文档 · 历史缺陷案例库 · 开发框架文档
+    </div>
+  </div>
+
+  <!-- ========== 销售部 ========== -->
+  <div class="dept s">
+    <div class="dept-head sh">
+      <div class="d-title">销售部</div>
+      <div class="d-role">部门长智能体 · 内部编排</div>
+    </div>
+
+    <!-- 获客智能体 -->
+    <div class="agent">
+      <div class="agent-title"><span class="seq">1</span>获客智能体</div>
+      <div class="agent-body">
+        <p class="lbl">职能描述</p>
+        <p>通过搜索引擎推广获客（关键词优化、精准投放），建立设计师、别墅项目方、异业合作伙伴、物业公司的合作渠道</p>
+        <p class="lbl">专属工具</p>
+        <div class="tags">
+          <span class="tag tag-tool">搜索引擎推广</span>
+          <span class="tag tag-tool">关键词优化工具</span>
+          <span class="tag tag-tool">精准投放工具</span>
+          <span class="tag tag-tool">渠道拓展工具</span>
+          <span class="tag tag-tool">线索筛选工具</span>
+          <span class="tag tag-tool">客户资质评估</span>
+        </div>
+        <p class="lbl">目标渠道</p>
+        <div class="tags">
+          <span class="tag tag-kb">室内设计师</span>
+          <span class="tag tag-kb">别墅项目方</span>
+          <span class="tag tag-kb">异业合作伙伴</span>
+          <span class="tag tag-kb">物业公司</span>
+        </div>
+        <p class="lbl">输出物</p>
+        <div class="tags">
+          <span class="tag tag-out">客户线索名单</span>
+          <span class="tag tag-out">渠道分析报告</span>
+        </div>
+        <p class="lbl">权限</p>
+        <div class="tags"><span class="tag tag-perm">销售人员</span></div>
+      </div>
+    </div>
+
+    <!-- 业务智能体 -->
+    <div class="agent">
+      <div class="agent-title"><span class="seq">2</span>业务智能体</div>
+      <div class="agent-body">
+        <p class="lbl">职能描述</p>
+        <p>承接线索后开展客户报价、定制化图纸输出，自动报价计算、客户需求智能匹配、订单进度跟踪</p>
+        <p class="lbl">专属工具</p>
+        <div class="tags">
+          <span class="tag tag-tool">自动报价计算</span>
+          <span class="tag tag-tool">需求智能匹配</span>
+          <span class="tag tag-tool">CAD图纸工具</span>
+          <span class="tag tag-tool">订单进度跟踪</span>
+          <span class="tag tag-tool">合同模板生成</span>
+          <span class="tag tag-tool">客户沟通记录</span>
+        </div>
+        <p class="lbl">知识库</p>
+        <div class="tags">
+          <span class="tag tag-kb">产品价格体系</span>
+          <span class="tag tag-kb">定制化方案库</span>
+          <span class="tag tag-kb">客户需求案例库</span>
+        </div>
+        <p class="lbl">输出物</p>
+        <div class="tags">
+          <span class="tag tag-out">客户报价单</span>
+          <span class="tag tag-out">定制化图纸</span>
+          <span class="tag tag-out">合同草稿</span>
+          <span class="tag tag-out">订单跟踪表</span>
+        </div>
+        <p class="lbl">权限</p>
+        <div class="tags">
+          <span class="tag tag-perm">销售人员独立CRM</span>
+          <span class="tag tag-perm">经理看全部门看板</span>
+        </div>
+        <p style="font-size:9px; color:#604010; margin-top:3px;">← 接收线索名单 → 成单后触发维修部安装派单</p>
+        <div class="tags" style="margin-top:3px;"><span class="xlink">→ 联动维修部</span></div>
+      </div>
+    </div>
+
+    <!-- 数据看板 -->
+    <div class="agent">
+      <div class="agent-title"><span class="seq">3</span>数据看板智能体</div>
+      <div class="agent-body">
+        <p class="lbl">职能描述</p>
+        <p>汇总全部门销售数据，为销售经理提供统一数据看板，含业绩、客户转化率、订单进度可视化</p>
+        <p class="lbl">专属工具</p>
+        <div class="tags">
+          <span class="tag tag-tool">数据聚合工具</span>
+          <span class="tag tag-tool">BI可视化图表</span>
+          <span class="tag tag-tool">业绩统计报表</span>
+        </div>
+        <p class="lbl">知识库</p>
+        <div class="tags">
+          <span class="tag tag-kb">CRM独立数据库</span>
+          <span class="tag tag-kb">历史销售数据</span>
+        </div>
+        <p class="lbl">输出物</p>
+        <div class="tags">
+          <span class="tag tag-out">销售业绩看板</span>
+          <span class="tag tag-out">客户转化分析</span>
+          <span class="tag tag-out">订单进度周报</span>
+        </div>
+        <p class="lbl">权限</p>
+        <div class="tags">
+          <span class="tag tag-perm">经理查全局</span>
+          <span class="tag tag-perm">销售员查个人</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="kb-footer">
+      <b>共享知识库</b>
+      产品参数库 · 价格体系 · 客户档案库 · 订单库 · 定制方案案例 · CRM独立数据库
+    </div>
+  </div>
+
+  <!-- ========== 维修部 ========== -->
+  <div class="dept r">
+    <div class="dept-head rh">
+      <div class="d-title">维修部</div>
+      <div class="d-role">部门长智能体 · 内部编排</div>
+    </div>
+
+    <!-- 维修经理 -->
+    <div class="agent">
+      <div class="agent-title"><span class="seq">1</span>维修经理智能体</div>
+      <div class="agent-body">
+        <p class="lbl">职能描述</p>
+        <p>负责维修订单派单、进度跟踪、数据统计（维修频次、故障类型、服务质量）；接收销售部/用户端触发的安装/维修工单后进行排期派单</p>
+        <p class="lbl">专属工具</p>
+        <div class="tags">
+          <span class="tag tag-tool">智能派单系统</span>
+          <span class="tag tag-tool">维修排期工具</span>
+          <span class="tag tag-tool">进度跟踪看板</span>
+          <span class="tag tag-tool">数据统计报表</span>
+          <span class="tag tag-tool">维修节点查询</span>
+          <span class="tag tag-tool">安装节点查询</span>
+        </div>
+        <p class="lbl">知识库</p>
+        <div class="tags">
+          <span class="tag tag-kb">工单历史库</span>
+          <span class="tag tag-kb">维修人员档案</span>
+          <span class="tag tag-kb">服务质量标准</span>
+        </div>
+        <p class="lbl">输出物</p>
+        <div class="tags">
+          <span class="tag tag-out">维修派单</span>
+          <span class="tag tag-out">进度报告</span>
+          <span class="tag tag-out">维修频次统计</span>
+          <span class="tag tag-out">服务质量报告</span>
+        </div>
+        <p class="lbl">权限</p>
+        <div class="tags"><span class="tag tag-perm">经理级</span></div>
+        <div class="tags" style="margin-top:3px;">
+          <span class="xlink">← 销售部成单触发</span>
+          <span class="xlink">← 客服救援触发</span>
+          <span class="xlink">← 用户端报修触发</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 维修大师 -->
+    <div class="agent">
+      <div class="agent-title"><span class="seq">2</span>维修大师智能体</div>
+      <div class="agent-body">
+        <p class="lbl">职能描述</p>
+        <p>提供技术支持，解决复杂故障，提供技术图纸调取、故障类型智能识别与解决方案推荐，指导维修工执行</p>
+        <p class="lbl">专属工具</p>
+        <div class="tags">
+          <span class="tag tag-tool">故障智能识别</span>
+          <span class="tag tag-tool">技术图纸调取</span>
+          <span class="tag tag-tool">解决方案推荐</span>
+          <span class="tag tag-tool">配件信息查询</span>
+          <span class="tag tag-tool">远程技术指导</span>
+        </div>
+        <p class="lbl">知识库</p>
+        <div class="tags">
+          <span class="tag tag-kb">电梯技术规范库</span>
+          <span class="tag tag-kb">历史故障案例库</span>
+          <span class="tag tag-kb">技术图纸数据库</span>
+          <span class="tag tag-kb">配件信息库</span>
+        </div>
+        <p class="lbl">输出物</p>
+        <div class="tags">
+          <span class="tag tag-out">故障诊断报告</span>
+          <span class="tag tag-out">技术解决方案</span>
+          <span class="tag tag-out">图纸文件</span>
+        </div>
+        <p class="lbl">权限</p>
+        <div class="tags"><span class="tag tag-perm">技术专家级</span></div>
+      </div>
+    </div>
+
+    <!-- 维修工 -->
+    <div class="agent">
+      <div class="agent-title"><span class="seq">3</span>维修工智能体</div>
+      <div class="agent-body">
+        <p class="lbl">职能描述</p>
+        <p>按单完成维修、安装、保养工作，记录执行情况；获取维修任务详情、技术图纸、配件信息，记录维修过程与结果</p>
+        <p class="lbl">专属工具</p>
+        <div class="tags">
+          <span class="tag tag-tool">工单接收工具</span>
+          <span class="tag tag-tool">现场照片上传</span>
+          <span class="tag tag-tool">维修记录填报</span>
+          <span class="tag tag-tool">配件扫码查询</span>
+          <span class="tag tag-tool">完工确认工具</span>
+        </div>
+        <p class="lbl">知识库</p>
+        <div class="tags">
+          <span class="tag tag-kb">配件手册库</span>
+          <span class="tag tag-kb">操作规程手册</span>
+          <span class="tag tag-kb">保养周期表</span>
+        </div>
+        <p class="lbl">输出物</p>
+        <div class="tags">
+          <span class="tag tag-out">维修执行记录</span>
+          <span class="tag tag-out">完工确认单</span>
+          <span class="tag tag-out">现场照片报告</span>
+        </div>
+        <p class="lbl">权限</p>
+        <div class="tags"><span class="tag tag-perm">执行岗（仅查本人工单）</span></div>
+        <p style="font-size:9px; color:#804030; margin-top:3px;">← 接收经理派单 + 大师技术支持 → 完工回传经理</p>
+      </div>
+    </div>
+
+    <!-- 角色颜色工具 -->
+    <div class="agent">
+      <div class="agent-title"><span class="seq">✦</span>角色颜色工具</div>
+      <div class="agent-body">
+        <p class="lbl">故障识别颜色分级</p>
+        <div class="tags">
+          <span class="tag" style="background:rgba(255,80,80,0.15);color:#e06060;">红色·紧急故障</span>
+          <span class="tag" style="background:rgba(255,180,50,0.15);color:#d0a040;">黄色·一般故障</span>
+          <span class="tag" style="background:rgba(80,180,100,0.15);color:#60b070;">绿色·正常</span>
+        </div>
+        <p class="lbl">节点状态查询范围</p>
+        <div class="tags">
+          <span class="tag tag-kb">维修节点</span>
+          <span class="tag tag-kb">安装节点</span>
+          <span class="tag tag-kb">保养节点</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="kb-footer">
+      <b>共享知识库</b>
+      电梯技术规范 · 故障案例库 · 配件信息库 · 技术图纸数据库 · 操作手册 · 保养规程
+    </div>
+  </div>
+
+  <!-- ========== 客服部 ========== -->
+  <div class="dept c">
+    <div class="dept-head ch">
+      <div class="d-title">客服部</div>
+      <div class="d-role">部门长智能体 · 内部编排</div>
+    </div>
+
+    <!-- 日常客服 -->
+    <div class="agent">
+      <div class="agent-title"><span class="seq">1</span>日常客服智能体</div>
+      <div class="agent-body">
+        <p class="lbl">职能描述</p>
+        <p>处理客户咨询（产品参数、安装流程、维保周期、价格咨询等），整合常见问题库，支持自然语言交互查询；支持复杂问题转人工客服，保留交互上下文</p>
+        <p class="lbl">专属工具</p>
+        <div class="tags">
+          <span class="tag tag-tool">自然语言处理</span>
+          <span class="tag tag-tool">FAQ问答机器人</span>
+          <span class="tag tag-tool">上下文记忆工具</span>
+          <span class="tag tag-tool">人工转接工具</span>
+          <span class="tag tag-tool">FAQ自主学习更新</span>
+          <span class="tag tag-tool">多轮对话管理</span>
+        </div>
+        <p class="lbl">知识库</p>
+        <div class="tags">
+          <span class="tag tag-kb">常见问题库（可自学）</span>
+          <span class="tag tag-kb">产品参数文档</span>
+          <span class="tag tag-kb">安装流程文档</span>
+          <span class="tag tag-kb">维保周期表</span>
+          <span class="tag tag-kb">价格咨询规范</span>
+        </div>
+        <p class="lbl">输出物</p>
+        <div class="tags">
+          <span class="tag tag-out">咨询解答文本</span>
+          <span class="tag tag-out">转人工工单</span>
+          <span class="tag tag-out">FAQ更新记录</span>
+        </div>
+        <p class="lbl">权限</p>
+        <div class="tags">
+          <span class="tag tag-perm">客服人员</span>
+          <span class="tag tag-perm">用户自助查询</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 紧急救援 -->
+    <div class="agent">
+      <div class="agent-title"><span class="seq">2</span>紧急救援智能体</div>
+      <div class="agent-body">
+        <p class="lbl">职能描述</p>
+        <p>自动识别紧急场景（电梯关人、故障停机等），协助拨打救援电话，远程安抚被困人员，同步通知维修部与电梯使用单位，记录救援过程形成救援报告</p>
+        <p class="lbl">触发场景</p>
+        <div class="tags">
+          <span class="tag tag-out">电梯关人</span>
+          <span class="tag tag-out">故障停机</span>
+          <span class="tag tag-out">异常运行</span>
+          <span class="tag tag-out">超时无响应</span>
+        </div>
+        <p class="lbl">专属工具</p>
+        <div class="tags">
+          <span class="tag tag-tool">紧急场景识别</span>
+          <span class="tag tag-tool">救援电话联动</span>
+          <span class="tag tag-tool">远程安抚话术</span>
+          <span class="tag tag-tool">多方同步通知</span>
+          <span class="tag tag-tool">救援流程记录</span>
+          <span class="tag tag-tool">救援报告生成</span>
+        </div>
+        <p class="lbl">知识库</p>
+        <div class="tags">
+          <span class="tag tag-kb">救援标准流程库</span>
+          <span class="tag tag-kb">安抚话术库</span>
+          <span class="tag tag-kb">紧急联系人库</span>
+          <span class="tag tag-kb">电梯使用单位档案</span>
+        </div>
+        <p class="lbl">输出物</p>
+        <div class="tags">
+          <span class="tag tag-out">救援处置记录</span>
+          <span class="tag tag-out">救援报告</span>
+          <span class="tag tag-out">多方通知记录</span>
+        </div>
+        <p class="lbl">跨部门联动</p>
+        <div class="tags">
+          <span class="xlink">→ 立即触发维修部派单</span>
+          <span class="xlink">→ 通知电梯使用单位</span>
+          <span class="xlink">→ 汇报CEO生成救援报告</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 人工客服 -->
+    <div class="agent">
+      <div class="agent-title"><span class="seq">✦</span>人工客服（兜底）</div>
+      <div class="agent-body">
+        <p class="lbl">接管条件</p>
+        <p>智能体无法解决的复杂问题、客户明确要求人工时自动转接，上下文完整移交，无需重复描述</p>
+        <p class="lbl">保留内容</p>
+        <div class="tags">
+          <span class="tag tag-kb">完整对话上下文</span>
+          <span class="tag tag-kb">客户信息</span>
+          <span class="tag tag-kb">问题分类标签</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="kb-footer">
+      <b>共享知识库</b>
+      常见问题库 · 产品参数 · 安装流程 · 维保规范 · 救援流程 · 紧急联系人 · 安抚话术
+    </div>
+  </div>
+
+  <!-- ========== 用户管理端 ========== -->
+  <div class="dept u">
+    <div class="dept-head uh">
+      <div class="d-title">用户端</div>
+      <div class="d-role">C端自主管理入口</div>
+    </div>
+
+    <!-- 设备管理 -->
+    <div class="agent">
+      <div class="agent-title"><span class="seq">1</span>设备管理智能体</div>
+      <div class="agent-body">
+        <p class="lbl">职能描述</p>
+        <p>用户可自主管理名下设备，查看实时运行状态、历史维修记录、保养周期提醒</p>
+        <p class="lbl">专属工具</p>
+        <div class="tags">
+          <span class="tag tag-tool">设备状态监控</span>
+          <span class="tag tag-tool">历史记录查询</span>
+          <span class="tag tag-tool">保养提醒推送</span>
+          <span class="tag tag-tool">设备档案管理</span>
+        </div>
+        <p class="lbl">数据来源</p>
+        <div class="tags">
+          <span class="tag tag-kb">IoT设备实时数据</span>
+          <span class="tag tag-kb">维修部回传记录</span>
+          <span class="tag tag-kb">保养周期档案</span>
+        </div>
+        <p class="lbl">输出物</p>
+        <div class="tags">
+          <span class="tag tag-out">设备状态面板</span>
+          <span class="tag tag-out">维修历史记录</span>
+          <span class="tag tag-out">保养到期提醒</span>
+        </div>
+        <p class="lbl">权限</p>
+        <div class="tags"><span class="tag tag-perm">C端用户（仅看自己设备）</span></div>
+      </div>
+    </div>
+
+    <!-- 报修入口 -->
+    <div class="agent">
+      <div class="agent-title"><span class="seq">2</span>报修入口智能体</div>
+      <div class="agent-body">
+        <p class="lbl">职能描述</p>
+        <p>用户发起报修请求，智能体自动录入工单信息，触发维修部经理进行派单处理，实时返回处理进度</p>
+        <p class="lbl">专属工具</p>
+        <div class="tags">
+          <span class="tag tag-tool">故障描述录入</span>
+          <span class="tag tag-tool">工单自动生成</span>
+          <span class="tag tag-tool">进度实时查询</span>
+          <span class="tag tag-tool">图片/视频上传</span>
+        </div>
+        <p class="lbl">输出物</p>
+        <div class="tags">
+          <span class="tag tag-out">维修工单</span>
+          <span class="tag tag-out">受理通知</span>
+          <span class="tag tag-out">进度推送</span>
+        </div>
+        <p class="lbl">跨部门</p>
+        <div class="tags"><span class="xlink">→ 自动触发维修部派单</span></div>
+      </div>
+    </div>
+
+    <!-- 客服入口 -->
+    <div class="agent">
+      <div class="agent-title"><span class="seq">3</span>客服咨询入口</div>
+      <div class="agent-body">
+        <p class="lbl">职能描述</p>
+        <p>用户端一键进入客服咨询，接入客服部日常客服智能体；紧急情况自动识别并转紧急救援智能体</p>
+        <p class="lbl">跨部门</p>
+        <div class="tags">
+          <span class="xlink">→ 接入客服部日常智能体</span>
+          <span class="xlink">→ 紧急时触发救援智能体</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="kb-footer">
+      <b>数据来源</b>
+      维修部回传 · IoT实时状态 · 客服历史记录 · 保养档案
+    </div>
+  </div>
+
+</div><!-- end dept-row -->
+
+<!-- 回传说明 -->
+<div class="conn-label" style="margin-top:14px;">↑ 各部门执行完毕后回传结果至 CEO · CEO 整合汇总 · 可视化推送管理层 ↑</div>
+
+<!-- 跨部门协同流程 -->
+<div class="cross-section">
+  <div class="cs-title">跨部门协同典型流程</div>
+
+  <!-- 全流程 -->
+  <div style="font-size:10px; color:#445; margin-bottom:6px; font-weight:700;">① 客户从咨询到安装完成（串行+并行混合编排）</div>
+  <div class="flow-row">
+    <div class="fs ceo-s"><div class="fn">CEO</div><div class="fa">任务编排</div></div>
+    <div class="fa-arr">→</div>
+    <div class="fs mkt-s"><div class="fn">市场部</div><div class="fa">①线索投放</div></div>
+    <div class="fa-arr">→</div>
+    <div class="fs sal-s"><div class="fn">销售部</div><div class="fa">②报价成单</div></div>
+    <div class="fa-arr">→</div>
+    <div class="fs tec-s"><div class="fn">技术部</div><div class="fa">③图纸方案（并行）</div></div>
+    <div class="fa-arr">+</div>
+    <div class="fs rep-s"><div class="fn">维修部</div><div class="fa">③安装派单（并行）</div></div>
+    <div class="fa-arr">→</div>
+    <div class="fs cs-s"><div class="fn">客服部</div><div class="fa">④跟进服务</div></div>
+    <div class="fa-arr">→</div>
+    <div class="fs ceo-s"><div class="fn">CEO</div><div class="fa">汇总推送</div></div>
+  </div>
+
+  <div class="divider-line"></div>
+
+  <!-- 救援流程 -->
+  <div style="font-size:10px; color:#445; margin-bottom:6px; font-weight:700;">② 紧急救援跨部门联动（自动触发，毫秒级）</div>
+  <div class="flow-row">
+    <div class="fs cs-s"><div class="fn">客服部</div><div class="fa">救援智能体识别</div></div>
+    <div class="fa-arr">→</div>
+    <div class="fs rep-s"><div class="fn">维修部</div><div class="fa">经理立即派单</div></div>
+    <div class="fa-arr">+</div>
+    <div class="fs" style="border-color:#404040;"><div class="fn" style="color:#888;">物业/用户单位</div><div class="fa">同步通知</div></div>
+    <div class="fa-arr">+</div>
+    <div class="fs" style="border-color:#404040;"><div class="fn" style="color:#888;">被困人员</div><div class="fa">远程安抚</div></div>
+    <div class="fa-arr">→</div>
+    <div class="fs ceo-s"><div class="fn">CEO</div><div class="fa">生成救援报告</div></div>
+  </div>
+
+  <div class="divider-line"></div>
+
+  <!-- 技术部内串行 -->
+  <div style="font-size:10px; color:#445; margin-bottom:6px; font-weight:700;">③ 技术部内部串行编排（产品→开发→检测→部署）</div>
+  <div class="flow-row">
+    <div class="fs tec-s"><div class="fn">产品岗①</div><div class="fa">输出PRD/UI</div></div>
+    <div class="fa-arr">→</div>
+    <div class="fs tec-s"><div class="fn">开发岗②</div><div class="fa">按PRD开发代码</div></div>
+    <div class="fa-arr">→</div>
+    <div class="fs tec-s"><div class="fn">检测岗③</div><div class="fa">四维自动检测</div></div>
+    <div class="fa-arr">→</div>
+    <div class="fs tec-s"><div class="fn">运维岗④</div><div class="fa">分布式部署</div></div>
+    <div class="fa-arr">→</div>
+    <div class="fs ceo-s"><div class="fn">CEO</div><div class="fa">部署完成汇报</div></div>
+  </div>
+</div>
+
+<!-- 基础设施层 -->
+<div class="infra-wrap">
+  <div class="infra-title">数据 · 安全 · 基础设施层（所有部门共用）</div>
+  <div class="infra-grid">
+    <div class="infra-card">
+      <b>知识库投喂内容</b>
+      电梯行业标准 · 产品技术参数 · 历史维修案例 · 客户常见问题库 · 竞品数据 · 价格体系 · 配件信息 · 操作规程手册 · 救援流程规范
+    </div>
+    <div class="infra-card">
+      <b>数据权限分级</b>
+      明确数据授权与分级授权 · 避免数据泄露 · 确保数据隔离 · 内部完整版/外部脱敏版 · 各部门独立数据库 · 跨部门只读接口
+    </div>
+    <div class="infra-card">
+      <b>部署架构</b>
+      多服务器分布式部署 · 支持各业务节点同步稳定运行 · 支持新增业务场景与功能模块 · 适配业务迭代扩展
+    </div>
+    <div class="infra-card">
+      <b>性能要求</b>
+      普通查询响应 ≤3秒 · 复杂任务（如出图纸）≤30秒 · 系统可用性 ≥99.9% · 支持多用户同时在线并发操作
+    </div>
+    <div class="infra-card">
+      <b>安全要求</b>
+      客户信息加密存储 · 业务数据加密存储 · 维修/救援等关键功能权限校验 · 防止误操作 · 操作日志全量记录
+    </div>
+  </div>
+  <div style="margin-top:8px; font-size:9px; color:#2a2e48; text-align:center; letter-spacing:1px;">
+    多模态输入：文本 · 语音 &nbsp;|&nbsp; 多模态输出：文本 · 图表 · 视频脚本 · 技术图纸 · 报告文档
+  </div>
+</div>
+
+</body>
+</html>
