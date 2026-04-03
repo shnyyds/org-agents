@@ -356,6 +356,14 @@ function createConversation(registry, targetAgent, targetType, departmentHint) {
     activeDept: meta.department,
     activeAgent: meta.label,
     executionLog: [],
+    // Task lifecycle tracking
+    taskPhase: 'idle',
+    requirementConfirmationStatus: 'pending',
+    currentExecutor: '',
+    originalRequirement: '',
+    // Confirmation flow
+    awaitingConfirmation: false,
+    confirmationMeta: null,
     messages: [
       {
         id: `msg_${Date.now()}_welcome`,
@@ -498,6 +506,111 @@ function TutorialDemo({ stepIndex }) {
         <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm leading-6 text-slate-600">
           <div className="font-bold text-slate-900">{GUIDE_DEMO_STEPS[stepIndex]?.title}</div>
           <div className="mt-1">{GUIDE_DEMO_STEPS[stepIndex]?.text}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const TASK_PHASE_CONFIG = {
+  requirement_analysis: { label: '需求分析中', color: 'bg-blue-100 text-blue-700 border-blue-200' },
+  requirement_clarification: { label: '等待需求确认', color: 'bg-amber-100 text-amber-700 border-amber-200' },
+  sub_plan_generation: { label: '制定执行计划', color: 'bg-blue-100 text-blue-700 border-blue-200' },
+  dispatch_execution: { label: '执行中', color: 'bg-sky-100 text-sky-700 border-sky-200' },
+  test_reflow: { label: '检测回流', color: 'bg-orange-100 text-orange-700 border-orange-200' },
+  ops_finish: { label: '运维收尾', color: 'bg-indigo-100 text-indigo-700 border-indigo-200' },
+  completed: { label: '已完成', color: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
+};
+
+const EXECUTOR_NAMES = {
+  product: '蓝图BlueForm',
+  developer: '灵码SmartCode',
+  tester: '检博士CheckDoc',
+  devops: '运小盾OpsShield',
+};
+
+function TaskPhaseBar({ taskPhase, requirementConfirmationStatus, currentExecutor }) {
+  const config = TASK_PHASE_CONFIG[taskPhase];
+  if (!config) return null;
+
+  const executorLabel = currentExecutor ? EXECUTOR_NAMES[currentExecutor] || currentExecutor : '';
+
+  return (
+    <div className={`flex items-center gap-3 rounded-2xl border px-4 py-2.5 text-sm font-semibold ${config.color}`}>
+      {taskPhase === 'completed' ? (
+        <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+      ) : taskPhase === 'requirement_clarification' ? (
+        <span className="inline-block h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+      ) : (
+        <Loader2 size={14} className="animate-spin" />
+      )}
+      <span>{config.label}</span>
+      {executorLabel && taskPhase === 'dispatch_execution' && (
+        <span className="text-xs font-medium opacity-70">({executorLabel})</span>
+      )}
+    </div>
+  );
+}
+
+function ConfirmationActionBar({ meta, onContinue, onRegenerate, onModify }) {
+  const [feedback, setFeedback] = useState('');
+  const [showInput, setShowInput] = useState(false);
+
+  return (
+    <div className="border-t border-sky-100 bg-white/35 px-8 py-6 backdrop-blur-2xl">
+      <div className="rounded-[30px] border border-sky-100 bg-white/92 p-4 shadow-[0_22px_60px_rgba(148,163,184,0.14)]">
+        <div className="mb-3 text-sm text-slate-600">
+          <span className="font-bold text-slate-800">{meta.completedAgent}</span> 已完成
+          {meta.nextAgent && !meta.isFinalNode && (
+            <span>，下一步: <span className="font-bold text-sky-600">{meta.nextAgent}</span></span>
+          )}
+          {meta.isFinalNode && <span className="font-bold text-emerald-600"> — 全部流程已完成</span>}
+        </div>
+
+        {showInput && (
+          <textarea
+            value={feedback}
+            onChange={(e) => setFeedback(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey && feedback.trim()) {
+                e.preventDefault();
+                onModify(feedback.trim());
+                setFeedback('');
+                setShowInput(false);
+              }
+            }}
+            placeholder="请输入修改建议..."
+            className="mb-3 min-h-[80px] w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-800 outline-none focus:border-sky-300 placeholder:text-slate-400"
+          />
+        )}
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onContinue}
+            className="inline-flex items-center gap-2 rounded-2xl bg-[linear-gradient(135deg,#0ea5e9,#2563eb)] px-5 py-3 text-sm font-bold text-white shadow-[0_16px_32px_rgba(37,99,235,0.2)] transition hover:-translate-y-0.5"
+          >
+            {meta.isFinalNode ? '完成' : '继续'}
+          </button>
+          <button
+            onClick={onRegenerate}
+            className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-400"
+          >
+            重新生成
+          </button>
+          <button
+            onClick={() => {
+              if (showInput && feedback.trim()) {
+                onModify(feedback.trim());
+                setFeedback('');
+                setShowInput(false);
+              } else {
+                setShowInput(!showInput);
+              }
+            }}
+            className="inline-flex items-center gap-2 rounded-2xl border border-amber-300 bg-amber-50 px-5 py-3 text-sm font-bold text-amber-700 shadow-sm transition hover:-translate-y-0.5 hover:border-amber-400"
+          >
+            {showInput && feedback.trim() ? '提交修改' : '修改建议'}
+          </button>
         </div>
       </div>
     </div>
@@ -1429,6 +1542,174 @@ function App() {
     setInput('');
   };
 
+  // Shared SSE stream processor used by handleSend and handleConfirmation
+  const processSSEStream = async (response, conversationId) => {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmedLine = line.trim();
+        if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
+
+        try {
+          const data = JSON.parse(trimmedLine.slice(6));
+
+          if (data.type === 'stream') {
+            updateConversation(conversationId, (conversation) => {
+              const lastMessage = conversation.messages[conversation.messages.length - 1];
+              if (lastMessage && lastMessage.role === 'assistant' && lastMessage.node === data.node && lastMessage.isStreaming) {
+                const newContent = (lastMessage.content || '') + data.content;
+                return {
+                  ...conversation,
+                  activeAgent: data.active_agent,
+                  messages: [
+                    ...conversation.messages.slice(0, -1),
+                    { ...lastMessage, department: data.active_agent, content: newContent, targetContent: newContent, isAnimating: false },
+                  ],
+                };
+              }
+              return {
+                ...conversation,
+                activeAgent: data.active_agent,
+                messages: [
+                  ...conversation.messages,
+                  createAnimatedAssistantMessage({ content: data.content, targetContent: data.content, department: data.active_agent, node: data.node, isStreaming: true }),
+                ],
+              };
+            });
+          } else if (data.type === 'update') {
+            updateConversation(conversationId, (conversation) => {
+              let messages = conversation.messages;
+              const lastMessage = messages[messages.length - 1];
+              if (data.partial_content) {
+                if (lastMessage && lastMessage.role === 'assistant' && lastMessage.node === data.node_name) {
+                  if ((lastMessage.targetContent || lastMessage.content || '').trim() === data.partial_content.trim()) {
+                    return { ...conversation, activeDept: data.current_department || conversation.activeDept, activeAgent: data.active_agent || conversation.activeAgent, executionLog: data.execution_log?.length ? [...conversation.executionLog, ...data.execution_log] : conversation.executionLog, messages };
+                  }
+                  messages = [...messages.slice(0, -1), { ...lastMessage, department: data.active_agent || lastMessage.department, content: data.partial_content, targetContent: data.partial_content, isAnimating: false, isStreaming: false }];
+                } else {
+                  messages = [...messages, createAnimatedAssistantMessage({ content: data.partial_content, targetContent: data.partial_content, department: data.active_agent || conversation.label, node: data.node_name, isStreaming: false })];
+                }
+              }
+              return { ...conversation, activeDept: data.current_department || conversation.activeDept, activeAgent: data.active_agent || conversation.activeAgent, executionLog: data.execution_log?.length ? [...conversation.executionLog, ...data.execution_log] : conversation.executionLog, messages };
+            });
+          } else if (data.type === 'phase_update') {
+            updateConversation(conversationId, (conversation) => ({
+              ...conversation,
+              taskPhase: data.task_phase || conversation.taskPhase,
+              requirementConfirmationStatus: data.requirement_confirmation_status || conversation.requirementConfirmationStatus,
+              currentExecutor: data.current_executor || conversation.currentExecutor,
+            }));
+          } else if (data.type === 'awaiting_confirmation') {
+            updateConversation(conversationId, (conversation) => ({
+              ...conversation,
+              loading: false,
+              awaitingConfirmation: true,
+              confirmationMeta: {
+                completedNode: data.completed_node,
+                completedAgent: data.completed_agent,
+                nextNode: data.next_node,
+                nextAgent: data.next_agent,
+                isFinalNode: data.is_final_node,
+              },
+            }));
+          } else if (data.type === 'final') {
+            updateConversation(conversationId, (conversation) => {
+              let messages = conversation.messages.map((m) => ({ ...m, isStreaming: false }));
+              const lastMessage = messages[messages.length - 1];
+              const lastRendered = lastMessage?.targetContent || lastMessage?.content || '';
+              if (data.response && lastRendered.trim() !== data.response.trim()) {
+                messages = [...messages, createAnimatedAssistantMessage({ content: '', targetContent: data.response, department: conversation.label, node: data.node || 'final', isStreaming: false })];
+              }
+              return { ...conversation, loading: false, activeAgent: conversation.label, taskPhase: data.task_phase || conversation.taskPhase, requirementConfirmationStatus: data.requirement_confirmation_status || conversation.requirementConfirmationStatus, awaitingConfirmation: false, confirmationMeta: null, messages };
+            });
+          } else if (data.type === 'error') {
+            throw new Error(data.message);
+          }
+        } catch (error) {
+          console.error('Failed to parse stream chunk:', error);
+        }
+      }
+    }
+  };
+
+  // Handle user confirmation actions (continue / regenerate / modify)
+  const handleConfirmation = async (action, feedback = '') => {
+    if (!currentConversation) return;
+    const conversationId = currentConversation.id;
+
+    // If final node and user clicks "完成", just clear the confirmation state
+    if (action === 'continue' && currentConversation.confirmationMeta?.isFinalNode) {
+      updateConversation(conversationId, (conv) => ({
+        ...conv,
+        awaitingConfirmation: false,
+        confirmationMeta: null,
+      }));
+      return;
+    }
+
+    updateConversation(conversationId, (conv) => ({
+      ...conv,
+      awaitingConfirmation: false,
+      confirmationMeta: null,
+      loading: true,
+    }));
+
+    if (action === 'modify' && feedback) {
+      updateConversation(conversationId, (conv) => ({
+        ...conv,
+        messages: [...conv.messages, { id: `msg_${Date.now()}_modify`, role: 'user', content: `[修改建议] ${feedback}` }],
+      }));
+    }
+
+    if (action === 'regenerate') {
+      // Mark the last assistant message's node as stale so new stream creates a fresh bubble
+      updateConversation(conversationId, (conv) => {
+        const msgs = [...conv.messages];
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          if (msgs[i].role === 'assistant') {
+            msgs[i] = { ...msgs[i], node: `prev_${msgs[i].node}_${Date.now()}`, isStreaming: false };
+            break;
+          }
+        }
+        return { ...conv, messages: msgs };
+      });
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/chat/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: action === 'modify' ? feedback : '',
+          user_id: 'web_user',
+          session_id: conversationId,
+          target_agent: currentConversation.targetAgent,
+          target_type: currentConversation.targetType,
+          confirmation_action: action,
+          modification_feedback: action === 'modify' ? feedback : null,
+        }),
+      });
+      await processSSEStream(response, conversationId);
+    } catch (error) {
+      console.error('Confirmation error:', error);
+      updateConversation(conversationId, (conv) => ({
+        ...conv,
+        loading: false,
+        messages: [...conv.messages, { id: `msg_${Date.now()}_error`, role: 'assistant', content: '抱歉，系统响应出错，请稍后再试。', targetContent: '抱歉，系统响应出错，请稍后再试。', department: '系统提示', isAnimating: false, isStreaming: false }],
+      }));
+    }
+  };
+
   const handleSend = async () => {
     if (!input.trim() || !currentConversation || currentConversation.loading) return;
 
@@ -1438,6 +1719,10 @@ function App() {
       role: message.role,
       content: message.targetContent || message.content,
     }));
+
+    // Track original requirement: set on first user message
+    const isFirstUserTurn = !currentConversation.messages.some((m) => m.role === 'user');
+    const originalRequirement = isFirstUserTurn ? query : currentConversation.originalRequirement;
 
     setInput('');
 
@@ -1449,7 +1734,8 @@ function App() {
         loading: true,
         activeDept: conversation.department,
         activeAgent: conversation.label,
-        executionLog: [], // 清空流程树，准备记录新的执行流程
+        executionLog: [],
+        originalRequirement: originalRequirement || conversation.originalRequirement,
         messages: [
           ...conversation.messages,
           {
@@ -1472,158 +1758,12 @@ function App() {
           target_agent: currentConversation.targetAgent,
           target_type: currentConversation.targetType,
           history,
+          task_phase: currentConversation.taskPhase || null,
+          original_requirement: originalRequirement || null,
         }),
       });
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          const trimmedLine = line.trim();
-          if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
-
-          try {
-            const data = JSON.parse(trimmedLine.slice(6));
-
-            if (data.type === 'stream') {
-              updateConversation(conversationId, (conversation) => {
-                const lastMessage = conversation.messages[conversation.messages.length - 1];
-
-                if (lastMessage && lastMessage.role === 'assistant' && lastMessage.node === data.node && lastMessage.isStreaming) {
-                  // Directly append content from model stream - no animation
-                  const newContent = (lastMessage.content || '') + data.content;
-                  return {
-                    ...conversation,
-                    activeAgent: data.active_agent,
-                    messages: [
-                      ...conversation.messages.slice(0, -1),
-                      {
-                        ...lastMessage,
-                        department: data.active_agent,
-                        content: newContent,
-                        targetContent: newContent,
-                        isAnimating: false,
-                      },
-                    ],
-                  };
-                }
-
-                return {
-                  ...conversation,
-                  activeAgent: data.active_agent,
-                  messages: [
-                    ...conversation.messages,
-                    createAnimatedAssistantMessage({
-                      content: data.content,
-                      targetContent: data.content,
-                      department: data.active_agent,
-                      node: data.node,
-                      isStreaming: true,
-                    }),
-                  ],
-                };
-              });
-            } else if (data.type === 'update') {
-              updateConversation(conversationId, (conversation) => {
-                let messages = conversation.messages;
-                const lastMessage = messages[messages.length - 1];
-
-                if (data.partial_content) {
-                  if (lastMessage && lastMessage.role === 'assistant' && lastMessage.node === data.node_name) {
-                    if ((lastMessage.targetContent || lastMessage.content || '').trim() === data.partial_content.trim()) {
-                      return {
-                        ...conversation,
-                        activeDept: data.current_department || conversation.activeDept,
-                        activeAgent: data.active_agent || conversation.activeAgent,
-                        executionLog: data.execution_log?.length
-                          ? [...conversation.executionLog, ...data.execution_log]
-                          : conversation.executionLog,
-                        messages,
-                      };
-                    }
-                    messages = [
-                      ...messages.slice(0, -1),
-                      {
-                        ...lastMessage,
-                        department: data.active_agent || lastMessage.department,
-                        content: data.partial_content,
-                        targetContent: data.partial_content,
-                        isAnimating: false,
-                        isStreaming: false,
-                      },
-                    ];
-                  } else {
-                    messages = [
-                      ...messages,
-                      createAnimatedAssistantMessage({
-                        content: data.partial_content,
-                        targetContent: data.partial_content,
-                        department: data.active_agent || conversation.label,
-                        node: data.node_name,
-                        isStreaming: false,
-                      }),
-                    ];
-                  }
-                }
-
-                return {
-                  ...conversation,
-                  activeDept: data.current_department || conversation.activeDept,
-                  activeAgent: data.active_agent || conversation.activeAgent,
-                  executionLog: data.execution_log?.length
-                    ? [...conversation.executionLog, ...data.execution_log]
-                    : conversation.executionLog,
-                  messages,
-                };
-              });
-            } else if (data.type === 'final') {
-              updateConversation(conversationId, (conversation) => {
-                let messages = conversation.messages.map((message) => ({
-                  ...message,
-                  isStreaming: false,
-                }));
-
-                const lastMessage = messages[messages.length - 1];
-                const lastRendered = lastMessage?.targetContent || lastMessage?.content || '';
-                const shouldAppendFinal = data.response && lastRendered.trim() !== data.response.trim();
-
-                if (shouldAppendFinal) {
-                  messages = [
-                    ...messages,
-                    createAnimatedAssistantMessage({
-                      content: '',
-                      targetContent: data.response,
-                      department: conversation.label,
-                      node: data.node || 'final',
-                      isStreaming: false,
-                    }),
-                  ];
-                }
-
-                return {
-                  ...conversation,
-                  loading: false,
-                  activeAgent: conversation.label,
-                  messages,
-                };
-              });
-            } else if (data.type === 'error') {
-              throw new Error(data.message);
-            }
-          } catch (error) {
-            console.error('Failed to parse stream chunk:', error);
-          }
-        }
-      }
+      await processSSEStream(response, conversationId);
     } catch (error) {
       console.error('Streaming error:', error);
       updateConversation(conversationId, (conversation) => ({
@@ -2118,6 +2258,14 @@ function App() {
               </div>
 
               <div className="flex-1 overflow-y-auto px-8 py-8 space-y-7">
+                {/* Task Phase Status Bar */}
+                {currentConversation && currentConversation.taskPhase && currentConversation.taskPhase !== 'idle' && (
+                  <TaskPhaseBar
+                    taskPhase={currentConversation.taskPhase}
+                    requirementConfirmationStatus={currentConversation.requirementConfirmationStatus}
+                    currentExecutor={currentConversation.currentExecutor}
+                  />
+                )}
                 {(currentConversation?.messages || []).map((msg) => (
                   <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                     <div className={`flex max-w-[78%] gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
@@ -2184,6 +2332,14 @@ function App() {
                 <div ref={messagesEndRef} />
               </div>
 
+              {currentConversation?.awaitingConfirmation ? (
+                <ConfirmationActionBar
+                  meta={currentConversation.confirmationMeta}
+                  onContinue={() => handleConfirmation('continue')}
+                  onRegenerate={() => handleConfirmation('regenerate')}
+                  onModify={(fb) => handleConfirmation('modify', fb)}
+                />
+              ) : (
               <div className="border-t border-sky-100 bg-white/35 px-8 py-6 backdrop-blur-2xl">
                 <div className="rounded-[30px] border border-sky-100 bg-white/92 p-3 shadow-[0_22px_60px_rgba(148,163,184,0.14)]">
                   <textarea
@@ -2213,6 +2369,7 @@ function App() {
                   </div>
                 </div>
               </div>
+              )}
             </section>
 
             <aside className="w-[360px] border-l border-sky-100 bg-white/72 p-6 backdrop-blur-2xl overflow-y-auto shadow-[-20px_0_60px_rgba(148,163,184,0.08)]">

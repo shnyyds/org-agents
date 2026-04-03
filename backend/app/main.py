@@ -30,6 +30,12 @@ class UserInput(BaseModel):
     target_agent: Optional[str] = "CEO" # Target: "CEO", "MARKET", "TECH", "product_agent", etc.
     target_type: Optional[str] = "orchestrator" # Type: "orchestrator" (Lead) or "agent" (Sub)
     history: Optional[List[Dict[str, str]]] = None
+    # Task context carry-forward (for multi-turn clarification flows)
+    task_phase: Optional[str] = None
+    original_requirement: Optional[str] = None
+    # Confirmation flow
+    confirmation_action: Optional[str] = None      # "continue" | "regenerate" | "modify"
+    modification_feedback: Optional[str] = None     # User feedback for "modify" action
 
 
 class KnowledgeBaseCreate(BaseModel):
@@ -249,7 +255,13 @@ async def chat(input: UserInput):
         "results": {},
         "execution_log": [],
         "plan": [],
-        "plan_step": 0
+        "plan_step": 0,
+        "task_phase": input.task_phase or "idle",
+        "requirement_confirmation_status": "pending",
+        "original_requirement": input.original_requirement or "",
+        "sub_task_results": {},
+        "reflow_count": 0,
+        "max_reflow": 2,
     }
     
     # Run through the graph
@@ -329,189 +341,112 @@ async def update_agent_kb_binding(agent_id: str, payload: AgentKnowledgeBindingI
 @app.post("/chat/stream")
 async def chat_stream(input: UserInput):
     """
-    Streaming chat endpoint that supports multi-level routing:
-    1. Target: CEO -> CEO Orchestrates Departments.
-    2. Target: DEPT_LEAD -> User acts as CEO, Department Lead orchestrates sub-agents.
-    3. Target: SUB_AGENT -> User acts as Dept Lead, Sub-agent performs specific task.
+    Streaming chat endpoint with step-by-step execution and user confirmation.
+    Supports: fresh requests, continue, regenerate, and modify actions.
     """
-    logger.info(f"Received stream request: {input.query} (Target: {input.target_agent}, Type: {input.target_type})")
-    
+    logger.info(f"Received stream request: {input.query} (Target: {input.target_agent}, Type: {input.target_type}, Action: {input.confirmation_action})")
+
+    from app.session_store import SessionData, save_session, get_session
+    from app.step_executor import compute_initial_plan, execute_step
+
     async def event_generator():
-        streamed_nodes = set()
         event_queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
-        current_node = "CEO"
 
-        async def emit_sse(payload: Dict[str, Any]):
-            await event_queue.put(f"data: {json.dumps(payload, ensure_ascii=False)}\n\n")
-
-        initial_state = {
-            "messages": build_message_history(input.history, input.query),
-            "context": {
-                "user_id": input.user_id,
-                "session_id": input.session_id,
-                "target_agent": input.target_agent,
-                "target_type": input.target_type,
-                "stream_writer": emit_sse,
-                "streamed_nodes": streamed_nodes,
-            },
-            "results": {},
-            "execution_log": [],
-            "plan": [],
-            "plan_step": 0,
-            "sub_plan": [],
-            "sub_plan_step": 0
-        }
-        current_state = initial_state.copy()
-
-        friendly_names = {
-            "analyze_intent": "CEO 总智能体", "product": "蓝图BlueForm", "developer": "灵码SmartCode",
-            "tester": "检博士CheckDoc", "devops": "运小盾OpsShield", "analyze_industry": "行业分析大师",
-            "generate_content": "宣传推广大师", "lead_gen": "获客智能体", "quote": "业务报价智能体",
-            "cad": "CAD设计智能体", "manager": "派单经理智能体", "master": "故障识别大师",
-            "worker": "现场执行智能体", "faq": "FAQ智能助手", "emergency": "救援调度智能体",
-            "human": "人工客服座席", "device": "设备健康智能体", "repair_portal": "自主报修入口",
-            "tech_lead_plan": "星核StarCore", "market_lead_plan": "市场部部长", "sales_lead_plan": "销售部部长",
-            "repair_lead_plan": "维修部部长", "cs_lead_plan": "客服部部长", "user_lead_plan": "用户端部长"
-        }
-        streamable_nodes = {
-            "analyze_intent",
-            "summarize_result",
-            "tech_lead_plan",
-            "market_lead_plan",
-            "sales_lead_plan",
-            "repair_lead_plan",
-            "cs_lead_plan",
-            "user_lead_plan",
-            "product",
-            "developer",
-            "tester",
-            "devops",
-            "analyze_industry",
-            "generate_content",
-            "lead_gen",
-            "quote",
-            "cad",
-            "manager",
-            "master",
-            "worker",
-            "faq",
-            "emergency",
-            "human",
-            "device",
-            "repair_portal",
-        }
-
-        def get_friendly_agent_name(node_name: str, fallback: str = "智能体") -> str:
-            return friendly_names.get(node_name, fallback)
-
-        async def run_graph():
-            nonlocal current_node
-            runnable = ceo_app
-
-            if input.target_type == "orchestrator" and input.target_agent in ["MARKET", "TECH", "SALES", "REPAIR", "CS", "USER"]:
-                from app.ceo import market_lead, tech_lead, sales_lead, repair_lead, cs_lead, user_lead
-                leads = {
-                    "MARKET": market_lead, "TECH": tech_lead, "SALES": sales_lead,
-                    "REPAIR": repair_lead, "CS": cs_lead, "USER": user_lead
-                }
-                runnable = leads[input.target_agent].workflow.compile()
-                current_node = f"{input.target_agent}部长"
-                logger.info(f"Routing directly to Department Lead: {input.target_agent}")
-            elif input.target_type == "agent":
-                direct_agent_graph = create_direct_agent_graph(input.target_agent)
-                if direct_agent_graph:
-                    runnable = direct_agent_graph
-                    current_node = input.target_agent
-                    logger.info(f"Routing directly to Sub-Agent: {input.target_agent}")
-                else:
-                    logger.error(f"Unknown sub-agent: {input.target_agent}")
-
-            try:
-                logger.info("Starting astream_events loop...")
-                async for event in runnable.astream_events(initial_state, version="v2"):
-                    kind = event["event"]
-                    name = event["name"]
-
-                    if kind == "on_chain_start":
-                        if name not in ["LangGraph", "route_to_department", "route_next_step", "MARKET", "TECH", "SALES", "REPAIR", "CS", "USER", "dispatch_sub_agent", "route_sub_agent"]:
-                            logger.info(f">>> Node Start: {name}")
-                            current_node = name
-                            await emit_sse({"type": "update", "active_agent": name, "status": "thinking", "node_name": name})
-
-                    if kind == "on_chat_model_stream":
-                        content = event["data"]["chunk"].content
-                        if content:
-                            metadata = event.get("metadata", {})
-                            node_name = metadata.get("langgraph_node", current_node)
-                            if node_name not in streamable_nodes:
-                                continue
-                            if node_name not in streamed_nodes:
-                                streamed_nodes.add(node_name)
-                            agent_name = get_friendly_agent_name(node_name, current_state.get("active_agent", "智能体"))
-                            await emit_sse({"type": "stream", "content": content, "node": node_name, "active_agent": agent_name})
-
-                    if kind == "on_chain_end":
-                        data = event["data"]
-                        output = data.get("output", {})
-
-                        content = ""
-                        messages = output.get("messages", []) if isinstance(output, dict) else []
-                        if messages:
-                            content = messages[-1].content if hasattr(messages[-1], "content") else str(messages[-1])
-                        elif isinstance(output, dict) and "prd" in output:
-                            content = output["prd"]
-                        elif isinstance(output, dict) and "code" in output:
-                            content = f"```python\n{output['code']}\n```"
-
-                        if isinstance(output, dict):
-                            messages = output.get("messages", [])
-                            if messages:
-                                current_state.setdefault("messages", [])
-                                current_state["messages"].extend(messages)
-
-                            for k, v in output.items():
-                                if k not in ["execution_log", "messages", "results"]:
-                                    current_state[k] = v
-
-                            if output.get("execution_log"):
-                                current_state.setdefault("execution_log", [])
-                                current_state["execution_log"].extend(output["execution_log"])
-
-                            if output.get("results"):
-                                current_state.setdefault("results", {})
-                                current_state["results"].update(output["results"])
-
-                        if name in ["LangGraph", "route_to_department", "route_next_step", "MARKET", "TECH", "SALES", "REPAIR", "CS", "USER", "dispatch_sub_agent", "route_sub_agent"]:
-                            continue
-
-                        if content or (isinstance(output, dict) and output.get("execution_log")):
-                            active_agent_name = (output.get("active_agent") if isinstance(output, dict) else None) or get_friendly_agent_name(name, name)
-
-                            # No need for fallback stream - stream_llm_text already sent real chunks via stream_writer
-                            # Just mark the node as streamed if it's in streamable_nodes
-                            if name in streamable_nodes:
-                                streamed_nodes.add(name)
-
-                            await emit_sse(
-                                {
-                                    "type": "update",
-                                    "active_agent": active_agent_name,
-                                    "execution_log": output.get("execution_log", []) if isinstance(output, dict) else [],
-                                    "partial_content": "" if name in streamed_nodes else content,
-                                    "node_name": name,
-                                }
-                            )
-
-                final_ai_msg = [m for m in current_state.get("messages", []) if isinstance(m, AIMessage)]
-                final_response = final_ai_msg[-1].content if final_ai_msg else "执行完毕。"
-                await emit_sse({"type": "final", "response": final_response})
-            except Exception as e:
-                logger.error(f"Stream Error: {str(e)}", exc_info=True)
-                await emit_sse({"type": "error", "message": str(e)})
-            finally:
+        async def emit_sse(payload):
+            if payload is None:
                 await event_queue.put(None)
+            else:
+                await event_queue.put(f"data: {json.dumps(payload, ensure_ascii=False)}\n\n")
 
-        task = asyncio.create_task(run_graph())
+        if input.confirmation_action:
+            # ===== Confirmation resume mode =====
+            session = get_session(input.session_id)
+            if not session:
+                await emit_sse({"type": "error", "message": "会话已过期，请重新发起任务。"})
+                await emit_sse(None)
+                return
+
+            if input.confirmation_action == "regenerate":
+                session.cursor = max(0, session.cursor - 1)
+            elif input.confirmation_action == "modify":
+                session.cursor = max(0, session.cursor - 1)
+                session.state.setdefault("messages", [])
+                session.state["messages"].append(
+                    HumanMessage(content=f"[用户修改建议] {input.modification_feedback}")
+                )
+                session.state["user_modification_feedback"] = input.modification_feedback or ""
+
+            # Update stream_writer for this new SSE connection
+            session.state.setdefault("context", {})
+            session.state["context"]["stream_writer"] = emit_sse
+            session.state["context"]["streamed_nodes"] = set()
+
+            task = asyncio.create_task(execute_step(input.session_id, session, emit_sse))
+
+        elif input.session_id and get_session(input.session_id):
+            # ===== Resume from clarification pause (user typed a response) =====
+            session = get_session(input.session_id)
+            session.state.setdefault("messages", [])
+            session.state["messages"].append(HumanMessage(content=input.query))
+            session.state.setdefault("context", {})
+            session.state["context"]["stream_writer"] = emit_sse
+            session.state["context"]["streamed_nodes"] = set()
+            # Reset the plan to re-enter requirement_analysis with the new input
+            if session.last_node == "requirement_clarification":
+                session.execution_plan = ["requirement_analysis"]
+                session.cursor = 0
+                session.state["task_phase"] = "requirement_clarification"
+
+            task = asyncio.create_task(execute_step(input.session_id, session, emit_sse))
+
+        else:
+            # ===== Fresh request mode =====
+            mode = "ceo"
+            if input.target_type == "orchestrator" and input.target_agent in ["MARKET", "TECH", "SALES", "REPAIR", "CS", "USER"]:
+                mode = "department"
+            elif input.target_type == "agent":
+                mode = "agent"
+
+            initial_state = {
+                "messages": build_message_history(input.history, input.query),
+                "context": {
+                    "user_id": input.user_id,
+                    "session_id": input.session_id,
+                    "target_agent": input.target_agent,
+                    "target_type": input.target_type,
+                    "stream_writer": emit_sse,
+                    "streamed_nodes": set(),
+                },
+                "results": {},
+                "execution_log": [],
+                "plan": [],
+                "plan_step": 0,
+                "sub_plan": [],
+                "sub_plan_step": 0,
+                "task_phase": input.task_phase or "idle",
+                "requirement_confirmation_status": "pending",
+                "original_requirement": input.original_requirement or "",
+                "latest_supplement": input.query if input.task_phase == "requirement_clarification" else "",
+                "confirmed_requirement": "",
+                "current_executor": "",
+                "sub_task_results": {},
+                "reflow_count": 0,
+                "max_reflow": 2,
+            }
+
+            plan = compute_initial_plan(mode, input.target_agent)
+            session = SessionData(
+                state=initial_state,
+                execution_plan=plan,
+                cursor=0,
+                mode=mode,
+                target_agent=input.target_agent,
+                target_type=input.target_type,
+            )
+            save_session(input.session_id, session)
+
+            task = asyncio.create_task(execute_step(input.session_id, session, emit_sse))
+
         while True:
             payload = await event_queue.get()
             if payload is None:

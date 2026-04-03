@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 from app.state import AgentState
 from app.core.llm import get_llm
 from langchain_core.messages import AIMessage
@@ -9,6 +9,45 @@ from app.utils.agent_knowledge import inject_knowledge_into_prompt
 from app.utils.streaming import stream_llm_text
 
 llm = get_llm()
+
+
+def make_sub_task_result(
+    agent_id: str,
+    agent_name: str,
+    status: str,
+    output_type: str,
+    content: Any,
+    summary: str,
+    next_step: str = "",
+    department: str = "TECH",
+    kb_names: Optional[List[str]] = None,
+    extra: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Unified output builder for tech sub-agents."""
+    kb_note = f"（已参考{'、'.join(kb_names)}）" if kb_names else ""
+    result: Dict[str, Any] = {
+        "sub_task_results": {
+            agent_id: {
+                "status": status,
+                "output_type": output_type,
+                "content": content,
+                "summary": summary,
+            }
+        },
+        "messages": [AIMessage(content=summary if isinstance(summary, str) else str(content))],
+        "active_agent": agent_name,
+        "current_executor": agent_id,
+        "task_phase": "dispatch_execution",
+        "execution_log": [{
+            "agent": agent_name,
+            "status": f"{summary}{kb_note}",
+            "department": department,
+        }],
+        "next_step": next_step,
+    }
+    if extra:
+        result.update(extra)
+    return result
 
 async def product_agent_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
     """
@@ -30,13 +69,18 @@ async def product_agent_node(state: AgentState, config: RunnableConfig) -> Dict[
         active_agent="蓝图BlueForm",
     )
 
-    return {
-        "prd": content,
-        "messages": [AIMessage(content=content)],
-        "active_agent": "蓝图BlueForm",
-        "execution_log": [{"agent": "蓝图BlueForm", "status": f"PRD产出完成{'（已参考' + '、'.join(kb_names) + '）' if kb_names else ''}", "department": "TECH"}],
-        "next_step": "developer"
-    }
+    result = make_sub_task_result(
+        agent_id="product",
+        agent_name="蓝图BlueForm",
+        status="success",
+        output_type="prd",
+        content=content,
+        summary="PRD产出完成",
+        next_step="developer",
+        kb_names=kb_names,
+    )
+    result["prd"] = content
+    return result
 
 async def developer_agent_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
     """
@@ -62,13 +106,19 @@ async def developer_agent_node(state: AgentState, config: RunnableConfig) -> Dic
         active_agent="灵码SmartCode",
     )
 
-    return {
-        "code": code_content,
-        "messages": [AIMessage(content=f"```python\n{code_content}\n```")],
-        "active_agent": "灵码SmartCode",
-        "execution_log": [{"agent": "灵码SmartCode", "status": f"代码编写完成{'（已参考' + '、'.join(kb_names) + '）' if kb_names else ''}", "department": "TECH"}],
-        "next_step": "tester"
-    }
+    result = make_sub_task_result(
+        agent_id="developer",
+        agent_name="灵码SmartCode",
+        status="success",
+        output_type="code",
+        content=code_content,
+        summary="代码编写完成",
+        next_step="tester",
+        kb_names=kb_names,
+    )
+    result["code"] = code_content
+    result["messages"] = [AIMessage(content=f"```python\n{code_content}\n```")]
+    return result
 
 async def tester_agent_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
     """
@@ -79,49 +129,65 @@ async def tester_agent_node(state: AgentState, config: RunnableConfig) -> Dict[s
 
     logger.info("Tech: 检博士CheckDoc performing 4-dimensional security and quality check.")
     _, kb_names = inject_knowledge_into_prompt("tester", original_query or code or "", "请执行检测")
-    
+
     if code:
-        # Simple logic: If code contains "error", fail it for demonstration
         test_passed = "error" not in code.lower()
     else:
-        # If no code, but we are here, maybe we're testing a concept or general requirement
         test_passed = True
-    
+
     report = {
         "security": "Pass" if test_passed else "Fail: Potential vulnerability found",
         "coding_standard": "Pass",
         "functionality": "Pass",
         "compatibility": "Pass"
     }
-    
+
     report_md = f"### 四维检测报告\n\n- 安全性: {report['security']}\n- 编码规范: {report['coding_standard']}\n- 功能性: {report['functionality']}\n- 兼容性: {report['compatibility']}"
-    
-    status_msg = "四维检测完成" if test_passed else "检测不合格"
-    return {
-        "test_report": report,
-        "test_passed": test_passed,
-        "messages": [AIMessage(content=report_md)],
-        "active_agent": "检博士CheckDoc",
-        "execution_log": [{"agent": "检博士CheckDoc", "status": f"{status_msg}{'（已参考' + '、'.join(kb_names) + '）' if kb_names else ''}", "department": "TECH"}],
-        "next_step": "devops" if test_passed else "developer"
-    }
+
+    status_label = "四维检测完成" if test_passed else "检测不合格"
+    next_agent = "devops" if test_passed else "developer"
+
+    result = make_sub_task_result(
+        agent_id="tester",
+        agent_name="检博士CheckDoc",
+        status="success" if test_passed else "fail",
+        output_type="test_report",
+        content=report,
+        summary=status_label,
+        next_step=next_agent,
+        kb_names=kb_names,
+    )
+    result["test_report"] = report
+    result["test_passed"] = test_passed
+    result["messages"] = [AIMessage(content=report_md)]
+    if not test_passed:
+        result["reflow_count"] = state.get("reflow_count", 0) + 1
+        result["task_phase"] = "test_reflow"
+    return result
 
 async def devops_agent_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
     """
     ④ 运小盾 OpsShield: 分布式部署与监控
     """
     logger.info("Tech: 运小盾 OpsShield deploying code to distributed nodes.")
-    
+
     code = state.get("code")
     _, kb_names = inject_knowledge_into_prompt("devops", code or "", "请执行部署")
     report = "### 运维部署报告\n\n- 状态：✅ 部署成功\n- 节点：Node-A, Node-B\n- 监控：正常运行中 (Uptime: 99.9%)"
     if not code:
         report += "\n- 说明：本次为环境预部署/配置更新（未检测到新代码）"
-    
-    return {
-        "deployment_report": report,
-        "messages": [AIMessage(content=report)],
-        "active_agent": "运小盾 OpsShield",
-        "execution_log": [{"agent": "运小盾 OpsShield", "status": f"分布式部署成功{'（已参考' + '、'.join(kb_names) + '）' if kb_names else ''}", "department": "TECH"}],
-        "next_step": "end"
-    }
+
+    result = make_sub_task_result(
+        agent_id="devops",
+        agent_name="运小盾 OpsShield",
+        status="success",
+        output_type="deployment_report",
+        content=report,
+        summary="分布式部署成功",
+        next_step="end",
+        kb_names=kb_names,
+    )
+    result["deployment_report"] = report
+    result["messages"] = [AIMessage(content=report)]
+    result["task_phase"] = "ops_finish"
+    return result
