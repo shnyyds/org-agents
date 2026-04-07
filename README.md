@@ -71,6 +71,9 @@ org-agents/
 │   │   ├── main.py                   # FastAPI 主入口，定义所有 API 端点
 │   │   ├── ceo.py                    # CEO 总智能体，负责意图分析和跨部门编排
 │   │   ├── state.py                  # AgentState 定义，LangGraph 状态管理
+│   │   ├── session_store.py          # 会话状态存储，支持分步执行和取消
+│   │   ├── step_executor.py          # 分步执行引擎，逐节点执行并支持暂停/确认
+│   │   ├── agent_config.py           # 智能体配置服务（提示词、名称、描述）
 │   │   ├── kb.py                     # 知识库服务，管理文档和向量检索
 │   │   ├── agent_kb.py               # 智能体-知识库绑定服务
 │   │   │
@@ -79,39 +82,16 @@ org-agents/
 │   │   │   ├── agent.py              # 基础智能体类定义
 │   │   │   └── registry.py           # 智能体注册表，管理所有子智能体
 │   │   │
-│   │   ├── departments/              # 部门智能体
-│   │   │   ├── base.py               # 部门部长基类
-│   │   │   │
-│   │   │   ├── market/               # 市场部
-│   │   │   │   ├── agent.py          # 市场部部长（动态编排）
-│   │   │   │   └── sub_agents.py     # 需求分析、宣传推广智能体
-│   │   │   │
-│   │   │   ├── tech/                 # 技术部
-│   │   │   │   ├── agent.py          # 技术部部长（流水线编排）
-│   │   │   │   └── sub_agents.py     # 产品、开发、测试、运维智能体
-│   │   │   │
-│   │   │   ├── sales/                # 业务部
-│   │   │   │   ├── agent.py          # 业务部部长
-│   │   │   │   └── sub_agents.py     # 服务咨询、方案设计智能体
-│   │   │   │
-│   │   │   ├── repair/               # 运维部
-│   │   │   │   ├── agent.py          # 运维部部长
-│   │   │   │   └── sub_agents.py     # 派单、问题识别、现场执行智能体
-│   │   │   │
-│   │   │   ├── cs/                   # 客服部
-│   │   │   │   ├── agent.py          # 客服部部长
-│   │   │   │   └── sub_agents.py     # FAQ、应急调度、人工客服智能体
-│   │   │   │
-│   │   │   └── user/                 # 用户管理
-│   │   │       ├── agent.py          # 用户端部长
-│   │   │       └── sub_agents.py     # 服务状态、自主申报智能体
+│   │   ├── departments/              # 部门智能体（配置驱动，统一架构）
+│   │   │   ├── base.py               # 通用部门长基类（所有部门共用）
+│   │   │   └── registry.py           # 部门与子智能体配置注册表
 │   │   │
 │   │   ├── utils/                    # 工具模块
 │   │   │   ├── streaming.py          # 流式输出核心函数
 │   │   │   ├── logger.py             # 日志配置
 │   │   │   ├── messages.py           # 消息处理工具
 │   │   │   ├── labels.py             # 标签和格式化工具
-│   │   │   ├── agent_knowledge.py    # 知识库注入工具
+│   │   │   ├── agent_knowledge.py    # 知识库注入与提示词解析
 │   │   │   └── retriever.py          # 向量检索工具
 │   │   │
 │   │   └── db/                       # 数据库
@@ -120,6 +100,7 @@ org-agents/
 │   ├── data/                         # 数据存储
 │   │   ├── knowledge_bases.json      # 知识库元数据
 │   │   ├── agent_kb_bindings.json    # 智能体-知识库绑定关系
+│   │   ├── agent_configs.json        # 智能体自定义配置（覆盖默认值）
 │   │   └── kb_files/                 # 知识库文档文件
 │   │
 │   ├── scripts/                      # 脚本工具
@@ -145,8 +126,6 @@ org-agents/
 │   ├── 开发计划.md                    # 开发计划
 │   └── 项目框架图.svg                 # 架构图
 │
-├── test_streaming.py                 # 流式输出测试脚本
-├── test_e2e_streaming.py             # 端到端流式测试脚本
 ├── docker-compose.yml                # Docker Compose 配置
 └── README.md                         # 项目说明文档
 ```
@@ -159,24 +138,64 @@ org-agents/
 **FastAPI 主入口，定义所有 API 端点**
 
 主要功能：
-- `/chat/stream` - 流式对话端点（SSE）
+- `/chat/stream` - 流式对话端点（SSE），支持分步执行与确认
+- `/chat/stop` - 停止正在执行的流式会话
 - `/chat` - 普通对话端点
 - `/knowledge-bases/*` - 知识库管理 API
 - `/agent-kb-bindings/*` - 智能体-知识库绑定 API
+- `/agent-configs/*` - 智能体配置管理 API
 - `/registry` - 获取智能体注册表
 
-关键实现：
-```python
-@app.post("/chat/stream")
-async def chat_stream(input: UserInput):
-    # 创建 SSE 事件生成器
-    async def event_generator():
-        # 监听 LangGraph astream_events
-        async for event in runnable.astream_events(initial_state, version="v2"):
-            # 处理流式事件并发送到前端
-            if event["event"] == "on_chat_model_stream":
-                await emit_sse({"type": "stream", "content": chunk.content})
-```
+---
+
+#### `backend/app/step_executor.py`
+**分步执行引擎**
+
+替代 LangGraph 编译图执行，实现逐节点执行、暂停确认、动态计划扩展：
+- 每个可暂停节点执行完后等待用户确认（继续/重新生成/修改）
+- 支持会话取消（配合 `/chat/stop` 端点）
+- 动态扩展执行计划（CEO 分析后展开部门序列，部门长规划后展开子智能体序列）
+
+---
+
+#### `backend/app/session_store.py`
+**会话状态存储**
+
+在分步执行的暂停点之间保存中间状态：
+- `SessionData` 存储执行计划、游标、状态等
+- 支持会话取消标记（`cancelled` 字段）
+- 自动清理过期会话
+
+---
+
+#### `backend/app/agent_config.py`
+**智能体配置服务**
+
+统一管理所有智能体的提示词、名称和描述：
+- `DEFAULT_SYSTEM_PROMPTS` - 系统提示词（定义角色和行为）
+- `DEFAULT_USER_PROMPTS` - 用户提示词模板（格式化输入）
+- `DEFAULT_CONTEXT_TURNS` - 默认上下文轮数（LLM 调用时携带的历史对话轮数）
+- 支持通过 API 自定义覆盖默认配置，持久化到 `agent_configs.json`
+
+---
+
+#### `backend/app/departments/registry.py`
+**部门与子智能体配置注册表**
+
+所有部门（含技术部）统一使用配置驱动：
+- `DEPARTMENT_CONFIGS` - 部门配置（子智能体列表、默认计划）
+- `SUB_AGENT_CONFIGS` - 子智能体配置（显示名、链式输入、结果键）
+- `create_sub_agent_node()` - 工厂函数，根据配置自动生成节点
+
+---
+
+#### `backend/app/departments/base.py`
+**通用部门长基类**
+
+所有部门部长共用同一个类 `DepartmentLeadAgent`：
+- 自动从 registry 读取配置并构建工作流
+- `_lead_plan_node` - 调用 LLM 制定子智能体执行计划
+- `_dispatch_node` / `_route_sub_agent` - 按计划依次分发到子智能体
 
 ---
 
@@ -189,89 +208,6 @@ async def chat_stream(input: UserInput):
 3. `trigger_actions_node` - 处理跨部门触发（如销售成单 → 维修派单）
 4. `summarize_result_node` - 生成 CEO 级别的高层总结
 
-工作流程：
-```python
-workflow = StateGraph(AgentState)
-workflow.add_node("analyze_intent", analyze_intent_node)
-workflow.add_node("dispatch_to_department", dispatch_to_department_node)
-workflow.add_node("MARKET", market_lead.workflow.compile())
-workflow.add_node("TECH", tech_lead.workflow.compile())
-# ... 其他部门
-workflow.add_node("summarize_result", summarize_result_node)
-```
-
----
-
-#### `backend/app/state.py`
-**AgentState 定义，LangGraph 状态管理**
-
-核心字段：
-```python
-class AgentState(TypedDict, total=False):
-    messages: List[BaseMessage]           # 对话历史
-    context: Dict[str, Any]               # 上下文（包含 stream_writer）
-    plan: List[str]                       # CEO 制定的部门执行计划
-    plan_step: int                        # 当前执行到第几个部门
-    sub_plan: List[str]                   # 部门内部的子智能体计划
-    sub_plan_step: int                    # 当前执行到第几个子智能体
-    results: Dict[str, Any]               # 各部门的执行结果
-    execution_log: List[Dict[str, Any]]   # 执行日志（用于流程树）
-```
-
----
-
-#### `backend/app/departments/base.py`
-**部门部长基类**
-
-所有部门部长都继承此类：
-```python
-class DepartmentLeadAgent:
-    def __init__(self, name: str, department: str):
-        self.name = name
-        self.department = department
-        self.workflow = StateGraph(AgentState)
-        self.setup_workflow()  # 子类实现具体编排逻辑
-
-    def setup_workflow(self):
-        # 子类实现：添加节点、定义边、设置路由
-        raise NotImplementedError
-```
-
----
-
-#### `backend/app/departments/tech/agent.py`
-**技术部部长（流水线编排）**
-
-特点：串行流水线，支持测试失败回流
-
-工作流程：
-```
-tech_lead_plan → product → developer → tester → devops
-                                          ↓ (失败)
-                                      developer
-```
-
-核心逻辑：
-```python
-def decide_tester_outcome(self, state: AgentState) -> str:
-    if not state.get("test_passed", True):
-        return "fail"  # 回流到 developer
-    return "pass"      # 继续到 devops
-```
-
----
-
-#### `backend/app/departments/tech/sub_agents.py`
-**技术部子智能体**
-
-包含 4 个子智能体：
-1. `product_agent_node` - 产品岗：生成 PRD 文档
-2. `developer_agent_node` - 开发岗：编写代码
-3. `tester_agent_node` - 测试岗：代码质量检测
-4. `devops_agent_node` - 运维岗：部署上线
-
-每个智能体都使用 `stream_llm_text` 实现真实流式输出。
-
 ---
 
 #### `backend/app/utils/streaming.py`
@@ -279,69 +215,12 @@ def decide_tester_outcome(self, state: AgentState) -> str:
 
 `stream_llm_text` 函数：
 ```python
-async def stream_llm_text(
-    llm: Any,
-    prompt: Any,
-    state: dict,
-    node_name: str,
-    active_agent: str,
-) -> str:
+async def stream_llm_text(llm, prompt, state, node_name, active_agent) -> str:
     writer = state.get("context", {}).get("stream_writer")
-
-    async for chunk in llm.astream(prompt):  # 真实模型流式调用
-        content = chunk.content
+    async for chunk in llm.astream(prompt):
         if writer:
-            await writer({
-                "type": "stream",
-                "content": content,
-                "node": node_name,
-                "active_agent": active_agent,
-            })
-
+            await writer({"type": "stream", "content": chunk.content, ...})
     return full_text
-```
-
----
-
-#### `backend/app/kb.py`
-**知识库服务**
-
-功能：
-- 创建/更新/删除知识库
-- 上传文档并自动分块
-- 向量化存储到 Qdrant
-- 召回测试（检索相关文档）
-
-核心方法：
-```python
-class KnowledgeBaseService:
-    def add_document(self, kb_id, filename, content, separator, chunk_size, chunk_overlap):
-        # 1. 文本分块
-        chunks = self._split_text(content, separator, chunk_size, chunk_overlap)
-        # 2. 向量化
-        embeddings = self.embedding_model.embed_documents(chunks)
-        # 3. 存储到 Qdrant
-        self.qdrant_client.upsert(collection_name=kb_id, points=points)
-```
-
----
-
-#### `backend/app/utils/agent_knowledge.py`
-**知识库注入工具**
-
-自动为智能体注入相关知识：
-```python
-def inject_knowledge_into_prompt(agent_id: str, query: str, base_prompt: str):
-    # 1. 获取该智能体绑定的知识库
-    kb_ids = agent_kb_service.get_binding(agent_id)
-
-    # 2. 从知识库中检索相关文档
-    for kb_id in kb_ids:
-        docs = kb_service.recall_test(kb_id, query, top_k=3)
-
-    # 3. 注入到 prompt
-    enhanced_prompt = f"{base_prompt}\n\n参考资料：\n{docs}"
-    return enhanced_prompt
 ```
 
 ---
@@ -352,47 +231,13 @@ def inject_knowledge_into_prompt(agent_id: str, query: str, base_prompt: str):
 **主应用组件（包含所有 UI 逻辑）**
 
 核心功能：
-1. **会话管理** - 多会话切换、创建、删除
+1. **会话管理** - 多会话切换、创建
 2. **流式渲染** - SSE 接收并实时显示
-3. **流程树可视化** - 展示智能体执行流程
-4. **智能体注册表** - 展示所有可用智能体
-5. **知识库管理** - 创建、绑定、测试知识库
-
-关键实现：
-```javascript
-const handleSend = async () => {
-  // 清空流程树，准备记录新的执行流程
-  updateConversation(conversationId, (conversation) => ({
-    ...conversation,
-    executionLog: [],
-    loading: true,
-  }));
-
-  // 建立 SSE 连接
-  const response = await fetch(`${API_URL}/chat/stream`, {
-    method: 'POST',
-    body: JSON.stringify({ query, target_agent, target_type }),
-  });
-
-  // 读取流式数据
-  const reader = response.body.getReader();
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-
-    // 解析 SSE 事件
-    const data = JSON.parse(line.slice(6));
-
-    if (data.type === 'stream') {
-      // 直接追加内容，实现真实流式输出
-      updateConversation(conversationId, (conversation) => ({
-        ...conversation,
-        messages: [...messages, { content: content + data.content }],
-      }));
-    }
-  }
-};
-```
+3. **分步确认** - 每个智能体执行后可继续/重新生成/修改
+4. **停止按钮** - 流式输出期间可随时中断（AbortController + `/chat/stop`）
+5. **流程树可视化** - 展示智能体执行流程
+6. **知识库管理** - 创建、绑定、测试知识库
+7. **智能体配置** - 自定义提示词和名称
 
 ---
 
@@ -401,34 +246,60 @@ const handleSend = async () => {
 ### 1. 三层智能体协作
 
 - **CEO 层**：意图分析 + 跨部门编排
-- **部门层**：动态/流水线编排子智能体
-- **执行层**：具体任务执行（产品、开发、测试等）
+- **部门层**：动态编排子智能体（所有部门统一配置驱动）
+- **执行层**：具体任务执行（文本回答，支持知识库增强）
 
-### 2. 真实流式输出
+### 2. 配置驱动的统一架构
+
+- 所有部门（含技术部）使用同一套 `DepartmentLeadAgent` 基类
+- 子智能体通过 `SUB_AGENT_CONFIGS` 配置自动生成，无需手写代码
+- 支持链式传递（`input_from`）和自定义结果键
+- 提示词、名称、描述均可通过 API 在线修改
+
+### 3. 分步执行与确认
+
+- 每个智能体节点执行完后暂停，等待用户确认
+- 支持三种操作：继续执行、重新生成、修改建议
+- 会话状态持久化，支持多轮交互
+
+### 4. 停止按钮
+
+- 流式输出期间可随时点击停止
+- 前端通过 AbortController 断开 SSE 连接
+- 后端通过 `/chat/stop` 标记会话取消
+- 停止后可继续发送新消息
+
+### 5. 真实流式输出
 
 - 使用 `llm.astream()` 进行真实模型流式调用
 - 每个 token 生成后立即通过 SSE 发送到前端
 - 前端直接显示，无需模拟动画
-- 支持多节点并发流式输出
 
-### 3. 知识库增强
+### 6. 知识库增强
 
 - 支持上传文档并自动向量化
 - 智能体可绑定多个知识库
 - 自动检索相关文档并注入 prompt
 - 支持召回测试和分块预览
 
-### 4. 可视化流程树
+### 7. 可视化流程树
 
 - 实时展示智能体执行流程
 - 树形结构展示部门和子智能体
 - 每次新消息自动清空并重新记录
 
-### 5. 多会话管理
+### 8. 多会话管理
 
 - 支持同时与多个智能体对话
 - 每个会话独立的历史记录
 - 可切换到 CEO、部门部长、子智能体
+
+### 9. 会话上下文记忆
+
+- 每个智能体（CEO、部门长、子智能体）调用 LLM 时可携带历史对话上下文
+- 可在智能体配置界面中独立配置"上下文轮数"（context_turns，默认 3）
+- 设为 0 则无上下文记忆，与传统单轮对话行为一致
+- 各智能体配置互不影响，部门长和子智能体可设置不同的上下文深度
 
 ## 🎯 快速开始
 
@@ -557,7 +428,8 @@ http://localhost:5173/?mode=department&dept=REPAIR&brand=智慧运维平台
 ### 主要 API 端点
 
 #### 对话相关
-- `POST /chat/stream` - 流式对话（SSE）
+- `POST /chat/stream` - 流式对话（SSE），支持分步确认
+- `POST /chat/stop` - 停止正在执行的流式会话
 - `POST /chat` - 普通对话
 
 #### 知识库管理
@@ -570,6 +442,8 @@ http://localhost:5173/?mode=department&dept=REPAIR&brand=智慧运维平台
 - `GET /registry` - 获取智能体注册表
 - `GET /agent-kb-bindings/{agent_id}` - 获取智能体绑定的知识库
 - `PUT /agent-kb-bindings/{agent_id}` - 更新绑定关系
+- `GET /agent-configs/{agent_id}` - 获取智能体配置
+- `PUT /agent-configs/{agent_id}` - 更新智能体配置（提示词、名称、上下文轮数等）
 
 ## 🧪 测试
 
@@ -661,6 +535,28 @@ LOG_LEVEL=INFO                                           # 日志级别
 5. 开启 Pull Request
 
 ## 📝 更新日志
+
+### v1.4.0 (2026-04-07)
+- ✅ 会话上下文记忆
+  - 所有智能体（CEO、部门长、子智能体）调用 LLM 时支持携带历史对话上下文
+  - 新增 `context_turns` 配置项，可在智能体配置界面通过滑块调整（0-50，默认 3）
+  - 新增 `get_history_messages()` 工具函数，从 state 中提取最近 N 轮对话
+  - 各智能体独立配置，互不影响
+
+### v1.3.0 (2026-04-07)
+- ✅ 统一架构重构
+  - 所有部门（含技术部）统一使用配置驱动的 `DepartmentLeadAgent` 基类
+  - 子智能体通过 `SUB_AGENT_CONFIGS` 配置自动生成，删除所有独立 `agent.py` / `sub_agents.py`
+  - 新增 `departments/registry.py` 集中管理部门和子智能体配置
+  - 新增 `agent_config.py` 统一管理提示词，支持在线修改
+- ✅ 新增停止按钮
+  - 流式输出期间显示红色停止按钮，点击立即中断
+  - 前端 AbortController 断开 SSE + 后端 `/chat/stop` 取消执行
+  - 停止后界面恢复可输入状态，可继续发新消息
+- ✅ 新增分步执行引擎 (`step_executor.py`)
+  - 替代 LangGraph 编译图执行，逐节点执行并支持暂停/确认
+  - 动态计划扩展（CEO → 部门序列，部门长 → 子智能体序列）
+  - 会话状态持久化 (`session_store.py`)
 
 ### v1.2.0 (2026-04-03)
 - ✅ 优化需求澄清循环机制

@@ -13,7 +13,7 @@ class SessionData:
     __slots__ = (
         "state", "execution_plan", "cursor", "mode",
         "target_agent", "target_type", "last_node",
-        "created_at", "updated_at",
+        "created_at", "updated_at", "cancelled",
     )
 
     def __init__(
@@ -33,6 +33,7 @@ class SessionData:
         self.target_agent = target_agent
         self.target_type = target_type
         self.last_node = last_node
+        self.cancelled = False
         self.created_at = time.time()
         self.updated_at = time.time()
 
@@ -51,6 +52,15 @@ def get_session(session_id: str) -> Optional[SessionData]:
 
 def delete_session(session_id: str) -> None:
     _sessions.pop(session_id, None)
+
+
+def cancel_session(session_id: str) -> bool:
+    """Mark a session as cancelled so the executor stops at the next check."""
+    session = _sessions.get(session_id)
+    if session:
+        session.cancelled = True
+        return True
+    return False
 
 
 def cleanup_stale_sessions(max_age_seconds: int = 3600) -> int:

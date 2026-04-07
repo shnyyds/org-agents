@@ -9,6 +9,7 @@ from app.utils.logger import public_service_logger as logger
 from app.state import AgentState
 from app.kb import kb_service
 from app.agent_kb import agent_kb_service
+from app.agent_config import agent_config_service
 
 load_dotenv()
 
@@ -162,7 +163,6 @@ import json
 import asyncio
 from fastapi.responses import StreamingResponse
 from langgraph.graph import StateGraph, END
-from app.departments.market.agent import market_lead
 
 # Initialize CEO graph
 ceo_app = create_ceo_graph()
@@ -187,50 +187,26 @@ def build_message_history(history: Optional[List[Dict[str, str]]], query: str):
 
 
 def create_direct_agent_graph(agent_id: str):
-    from app.departments.tech.sub_agents import (
-        product_agent_node,
-        developer_agent_node,
-        tester_agent_node,
-        devops_agent_node,
-    )
-    from app.departments.sales.sub_agents import (
-        lead_gen_agent_node,
-        quote_agent_node,
-        cad_agent_node,
-    )
-    from app.departments.repair.sub_agents import (
-        repair_manager_agent_node,
-        repair_master_agent_node,
-        repair_worker_agent_node,
-    )
-    from app.departments.cs.sub_agents import (
-        faq_agent_node,
-        emergency_agent_node,
-        human_agent_node,
-    )
-    from app.departments.user.sub_agents import (
-        device_agent_node,
-        user_repair_agent_node,
-    )
+    from app.departments.registry import create_sub_agent_node
 
     direct_agents = {
-        "product": product_agent_node,
-        "developer": developer_agent_node,
-        "tester": tester_agent_node,
-        "devops": devops_agent_node,
-        "analyze_industry": market_lead.analyze_industry_node,
-        "generate_content": market_lead.generate_content_node,
-        "lead_gen": lead_gen_agent_node,
-        "quote": quote_agent_node,
-        "cad": cad_agent_node,
-        "manager": repair_manager_agent_node,
-        "master": repair_master_agent_node,
-        "worker": repair_worker_agent_node,
-        "faq": faq_agent_node,
-        "emergency": emergency_agent_node,
-        "human": human_agent_node,
-        "device": device_agent_node,
-        "repair_portal": user_repair_agent_node,
+        "product": create_sub_agent_node("product"),
+        "developer": create_sub_agent_node("developer"),
+        "tester": create_sub_agent_node("tester"),
+        "devops": create_sub_agent_node("devops"),
+        "analyze_industry": create_sub_agent_node("analyze_industry"),
+        "generate_content": create_sub_agent_node("generate_content"),
+        "lead_gen": create_sub_agent_node("lead_gen"),
+        "quote": create_sub_agent_node("quote"),
+        "cad": create_sub_agent_node("cad"),
+        "manager": create_sub_agent_node("manager"),
+        "master": create_sub_agent_node("master"),
+        "worker": create_sub_agent_node("worker"),
+        "faq": create_sub_agent_node("faq"),
+        "emergency": create_sub_agent_node("emergency"),
+        "human": create_sub_agent_node("human"),
+        "device": create_sub_agent_node("device"),
+        "repair_portal": create_sub_agent_node("repair_portal"),
     }
 
     node = direct_agents.get(agent_id)
@@ -294,6 +270,14 @@ from app.core.registry import get_all_sub_agent_ids
 class AgentKnowledgeBindingInput(BaseModel):
     kb_ids: List[str]
 
+
+class AgentConfigInput(BaseModel):
+    name: Optional[str] = ""
+    description: Optional[str] = ""
+    system_prompt: Optional[str] = ""
+    user_prompt: Optional[str] = ""
+    context_turns: Optional[int] = None
+
 @app.get("/registry")
 async def get_registry():
     """
@@ -301,18 +285,32 @@ async def get_registry():
     """
     bindings = agent_kb_service.list_bindings()
     kb_map = {kb["id"]: kb for kb in kb_service.list_kb_summaries()}
+    all_configs = agent_config_service.list_configs()
 
     registry = {}
     for dept_id, agents in DEPARTMENT_SUB_AGENTS.items():
         registry[dept_id] = []
         for agent in agents:
             kb_ids = bindings.get(agent["id"], [])
-            registry[dept_id].append(
-                {
-                    **agent,
-                    "knowledge_bases": [kb_map[kb_id] for kb_id in kb_ids if kb_id in kb_map],
-                }
-            )
+            cfg = all_configs.get(agent["id"])
+            entry = {
+                **agent,
+                "name": cfg["name"] if cfg and cfg.get("name") else agent["name"],
+                "description": cfg["description"] if cfg and cfg.get("description") else agent["description"],
+                "has_custom_prompt": bool(cfg and cfg.get("system_prompt")),
+                "knowledge_bases": [kb_map[kb_id] for kb_id in kb_ids if kb_id in kb_map],
+            }
+            registry[dept_id].append(entry)
+
+    # Include CEO and department lead configs
+    lead_ids = ["CEO"] + list(DEPARTMENT_SUB_AGENTS.keys())
+    lead_configs = {}
+    for lid in lead_ids:
+        cfg = all_configs.get(lid)
+        if cfg:
+            lead_configs[lid] = cfg
+    registry["_lead_configs"] = lead_configs
+
     return registry
 
 
@@ -337,6 +335,37 @@ async def update_agent_kb_binding(agent_id: str, payload: AgentKnowledgeBindingI
     cleaned_kb_ids = [kb_id for kb_id in payload.kb_ids if kb_id in valid_kb_ids]
     agent_kb_service.set_binding(agent_id, cleaned_kb_ids)
     return await get_agent_kb_binding(agent_id)
+
+
+@app.get("/agent-configs/{agent_id}")
+async def get_agent_config(agent_id: str):
+    effective = agent_config_service.get_effective_config(agent_id)
+    return {"agent_id": agent_id, **effective}
+
+
+@app.put("/agent-configs/{agent_id}")
+async def update_agent_config(agent_id: str, payload: AgentConfigInput):
+    config = agent_config_service.set_config(
+        agent_id,
+        payload.name or "",
+        payload.description or "",
+        payload.system_prompt or "",
+        payload.user_prompt or "",
+        context_turns=payload.context_turns,
+    )
+    return {"agent_id": agent_id, **config}
+
+class StopInput(BaseModel):
+    session_id: str
+
+
+@app.post("/chat/stop")
+async def stop_chat(payload: StopInput):
+    """Cancel a running streaming session."""
+    from app.session_store import cancel_session
+    cancelled = cancel_session(payload.session_id)
+    return {"status": "ok", "cancelled": cancelled}
+
 
 @app.post("/chat/stream")
 async def chat_stream(input: UserInput):
@@ -366,6 +395,8 @@ async def chat_stream(input: UserInput):
                 await emit_sse(None)
                 return
 
+            session.cancelled = False
+
             if input.confirmation_action == "regenerate":
                 session.cursor = max(0, session.cursor - 1)
             elif input.confirmation_action == "modify":
@@ -386,16 +417,12 @@ async def chat_stream(input: UserInput):
         elif input.session_id and get_session(input.session_id):
             # ===== Resume from clarification pause (user typed a response) =====
             session = get_session(input.session_id)
+            session.cancelled = False
             session.state.setdefault("messages", [])
             session.state["messages"].append(HumanMessage(content=input.query))
             session.state.setdefault("context", {})
             session.state["context"]["stream_writer"] = emit_sse
             session.state["context"]["streamed_nodes"] = set()
-            # Reset the plan to re-enter requirement_analysis with the new input
-            if session.last_node == "requirement_clarification":
-                session.execution_plan = ["requirement_analysis"]
-                session.cursor = 0
-                session.state["task_phase"] = "requirement_clarification"
 
             task = asyncio.create_task(execute_step(input.session_id, session, emit_sse))
 
@@ -426,7 +453,7 @@ async def chat_stream(input: UserInput):
                 "task_phase": input.task_phase or "idle",
                 "requirement_confirmation_status": "pending",
                 "original_requirement": input.original_requirement or "",
-                "latest_supplement": input.query if input.task_phase == "requirement_clarification" else "",
+                "latest_supplement": "",
                 "confirmed_requirement": "",
                 "current_executor": "",
                 "sub_task_results": {},

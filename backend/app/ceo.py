@@ -14,6 +14,9 @@ import json
 from app.utils.logger import public_service_logger as logger
 from app.utils.labels import format_department_plan, get_department_label
 from app.utils.streaming import stream_llm_text
+from app.utils.agent_knowledge import resolve_agent_prompt
+from app.utils.messages import get_history_messages
+from app.agent_config import agent_config_service
 
 async def analyze_intent_node(state: AgentState) -> Dict[str, Any]:
     '''
@@ -22,7 +25,7 @@ async def analyze_intent_node(state: AgentState) -> Dict[str, Any]:
     last_message = state["messages"][-1].content
     logger.info(f"CEO Orchestrator: Analyzing user query: '{last_message}'")
 
-    system_prompt = '''
+    system_prompt = resolve_agent_prompt("CEO", '''
     你是一位企业级多智能体协作系统的 CEO 总智能体。你的任务是解析用户的意图，并制定一个跨部门的执行计划。
 
     可选部门：
@@ -33,21 +36,27 @@ async def analyze_intent_node(state: AgentState) -> Dict[str, Any]:
     - CS (客服部): 常见问题咨询、应急响应、人工转接。
     - USER (用户管理): 服务状态查询、自主申报、咨询入口。
 
-    请分析用户需求是否涉及多个部门。例如：”分析需求并开发系统”涉及 MARKET 和 TECH。
+    请分析用户需求是否涉及多个部门。例如："分析需求并开发系统"涉及 MARKET 和 TECH。
 
     请按以下 JSON 格式返回分析结果：
     {
-        “plan”: [“部门代码1”, “部门代码2”, ...],
-        “intent”: “具体意图描述”,
-        “urgency”: “Low/Medium/High”,
-        “entities”: {“key”: “value”}
+        "plan": ["部门代码1", "部门代码2", ...],
+        "intent": "具体意图描述",
+        "urgency": "Low/Medium/High",
+        "entities": {"key": "value"}
     }
-    '''
+    ''', query=last_message)
 
     messages = [
         SystemMessage(content=system_prompt),
-        HumanMessage(content=last_message)
     ]
+
+    # 注入上下文历史
+    context_turns = agent_config_service.get_effective_config("CEO").get("context_turns", 0)
+    history = get_history_messages(state, context_turns)
+    messages.extend(history)
+
+    messages.append(HumanMessage(content=last_message))
 
     # Use streaming for real-time output
     response_text = await stream_llm_text(
@@ -96,12 +105,14 @@ async def analyze_intent_node(state: AgentState) -> Dict[str, Any]:
             "next_step": "dispatch"
         }
 
-from app.departments.market.agent import market_lead
-from app.departments.tech.agent import tech_lead
-from app.departments.sales.agent import sales_lead
-from app.departments.repair.agent import repair_lead
-from app.departments.cs.agent import cs_lead
-from app.departments.user.agent import user_lead
+from app.departments.registry import get_department_lead
+
+market_lead = get_department_lead("MARKET")
+tech_lead = get_department_lead("TECH")
+sales_lead = get_department_lead("SALES")
+repair_lead = get_department_lead("REPAIR")
+cs_lead = get_department_lead("CS")
+user_lead = get_department_lead("USER")
 
 async def dispatch_to_department_node(state: AgentState) -> Dict[str, Any]:
     """

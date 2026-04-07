@@ -30,12 +30,21 @@ SUB_AGENT_LABELS = {
 
 
 def format_department_plan(plan):
-    return " -> ".join(DEPARTMENT_LABELS.get(item, item) for item in plan)
+    return " -> ".join(get_agent_display_name(item) for item in plan)
 
 
 def format_sub_agent_plan(plan):
-    return " -> ".join(SUB_AGENT_LABELS.get(item, item) for item in plan)
+    return " -> ".join(get_agent_display_name(item) for item in plan)
 
 
 def get_department_label(dept_code: str) -> str:
-    return DEPARTMENT_LABELS.get(dept_code, dept_code)
+    return get_agent_display_name(dept_code)
+
+
+def get_agent_display_name(agent_id: str) -> str:
+    """Return custom name from agent_config if set, otherwise fall back to hardcoded labels."""
+    from app.agent_config import agent_config_service
+    config = agent_config_service.get_config(agent_id)
+    if config and config.get("name"):
+        return config["name"]
+    return DEPARTMENT_LABELS.get(agent_id) or SUB_AGENT_LABELS.get(agent_id, agent_id)

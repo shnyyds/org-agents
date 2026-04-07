@@ -30,35 +30,15 @@ def _build_registry():
         trigger_actions_node,
         summarize_result_node,
     )
-    # TECH
-    from app.departments.tech.agent import tech_lead
-    from app.departments.tech.sub_agents import (
-        product_agent_node, developer_agent_node,
-        tester_agent_node, devops_agent_node,
-    )
-    # MARKET
-    from app.departments.market.agent import market_lead
-    # SALES
-    from app.departments.sales.agent import sales_lead
-    from app.departments.sales.sub_agents import (
-        lead_gen_agent_node, quote_agent_node, cad_agent_node,
-    )
-    # REPAIR
-    from app.departments.repair.agent import repair_lead
-    from app.departments.repair.sub_agents import (
-        repair_manager_agent_node, repair_master_agent_node,
-        repair_worker_agent_node,
-    )
-    # CS
-    from app.departments.cs.agent import cs_lead
-    from app.departments.cs.sub_agents import (
-        faq_agent_node, emergency_agent_node, human_agent_node,
-    )
-    # USER
-    from app.departments.user.agent import user_lead
-    from app.departments.user.sub_agents import (
-        device_agent_node, user_repair_agent_node,
-    )
+    # 所有部门从 registry 获取
+    from app.departments.registry import get_department_lead, create_sub_agent_node
+
+    tech_lead = get_department_lead("TECH")
+    market_lead = get_department_lead("MARKET")
+    sales_lead = get_department_lead("SALES")
+    repair_lead = get_department_lead("REPAIR")
+    cs_lead = get_department_lead("CS")
+    user_lead = get_department_lead("USER")
 
     NODE_REGISTRY.update({
         # CEO
@@ -67,48 +47,46 @@ def _build_registry():
         "trigger_actions": trigger_actions_node,
         "summarize_result": summarize_result_node,
         # TECH
-        "requirement_analysis": tech_lead.requirement_analysis_node,
-        "requirement_clarification": tech_lead.requirement_clarification_node,
-        "tech_lead_plan": tech_lead.tech_lead_plan_node,
-        "tech_dispatch": tech_lead.dispatch_sub_agent_node,
-        "product": product_agent_node,
-        "developer": developer_agent_node,
-        "tester": tester_agent_node,
-        "devops": devops_agent_node,
+        "tech_lead_plan": tech_lead._lead_plan_node,
+        "tech_dispatch": tech_lead._dispatch_node,
+        "product": create_sub_agent_node("product"),
+        "developer": create_sub_agent_node("developer"),
+        "tester": create_sub_agent_node("tester"),
+        "devops": create_sub_agent_node("devops"),
         # MARKET
-        "market_lead_plan": market_lead.market_lead_plan_node,
-        "market_dispatch": market_lead.dispatch_sub_agent_node,
-        "analyze_industry": market_lead.analyze_industry_node,
-        "generate_content": market_lead.generate_content_node,
+        "market_lead_plan": market_lead._lead_plan_node,
+        "market_dispatch": market_lead._dispatch_node,
+        "analyze_industry": create_sub_agent_node("analyze_industry"),
+        "generate_content": create_sub_agent_node("generate_content"),
         # SALES
-        "sales_lead_plan": sales_lead.sales_lead_plan_node,
-        "sales_dispatch": sales_lead.dispatch_sub_agent_node,
-        "lead_gen": lead_gen_agent_node,
-        "quote": quote_agent_node,
-        "cad": cad_agent_node,
+        "sales_lead_plan": sales_lead._lead_plan_node,
+        "sales_dispatch": sales_lead._dispatch_node,
+        "lead_gen": create_sub_agent_node("lead_gen"),
+        "quote": create_sub_agent_node("quote"),
+        "cad": create_sub_agent_node("cad"),
         # REPAIR
-        "repair_lead_plan": repair_lead.repair_lead_plan_node,
-        "repair_dispatch": repair_lead.dispatch_sub_agent_node,
-        "manager": repair_manager_agent_node,
-        "master": repair_master_agent_node,
-        "worker": repair_worker_agent_node,
+        "repair_lead_plan": repair_lead._lead_plan_node,
+        "repair_dispatch": repair_lead._dispatch_node,
+        "manager": create_sub_agent_node("manager"),
+        "master": create_sub_agent_node("master"),
+        "worker": create_sub_agent_node("worker"),
         # CS
-        "cs_lead_plan": cs_lead.cs_lead_plan_node,
-        "cs_dispatch": cs_lead.dispatch_sub_agent_node,
-        "faq": faq_agent_node,
-        "emergency": emergency_agent_node,
-        "human": human_agent_node,
+        "cs_lead_plan": cs_lead._lead_plan_node,
+        "cs_dispatch": cs_lead._dispatch_node,
+        "faq": create_sub_agent_node("faq"),
+        "emergency": create_sub_agent_node("emergency"),
+        "human": create_sub_agent_node("human"),
         # USER
-        "user_lead_plan": user_lead.user_lead_plan_node,
-        "user_dispatch": user_lead.dispatch_sub_agent_node,
-        "device": device_agent_node,
-        "repair_portal": user_repair_agent_node,
+        "user_lead_plan": user_lead._lead_plan_node,
+        "user_dispatch": user_lead._dispatch_node,
+        "device": create_sub_agent_node("device"),
+        "repair_portal": create_sub_agent_node("repair_portal"),
     })
     _registry_built = True
 
 
 # Nodes that require RunnableConfig as second argument
-NEEDS_CONFIG = {"product", "developer", "tester", "devops"}
+NEEDS_CONFIG: set = set()
 
 # Nodes that pause for user confirmation after completing
 PAUSABLE_NODES = {
@@ -122,8 +100,7 @@ PAUSABLE_NODES = {
 }
 
 # Nodes that end the SSE stream and return to normal input mode
-# (user needs to type a response, not click continue/regenerate)
-ENDS_FOR_USER_INPUT = {"requirement_clarification"}
+ENDS_FOR_USER_INPUT = set()
 
 # Friendly display names
 FRIENDLY_NAMES = {
@@ -131,8 +108,6 @@ FRIENDLY_NAMES = {
     "dispatch_to_department": "CEO 总智能体",
     "trigger_actions": "CEO 总智能体",
     "summarize_result": "CEO 总智能体",
-    "requirement_analysis": "星核StarCore",
-    "requirement_clarification": "星核StarCore",
     "tech_lead_plan": "星核StarCore",
     "tech_dispatch": "星核StarCore",
     "product": "蓝图BlueForm",
@@ -166,7 +141,7 @@ FRIENDLY_NAMES = {
 
 # Department lead plan node mapping
 DEPT_LEAD_PLAN = {
-    "TECH": "requirement_analysis",
+    "TECH": "tech_lead_plan",
     "MARKET": "market_lead_plan",
     "SALES": "sales_lead_plan",
     "REPAIR": "repair_lead_plan",
@@ -228,15 +203,6 @@ def expand_plan_after_node(
         expansion.append("summarize_result")
         return plan[:cursor] + expansion
 
-    # After TECH requirement analysis: route to clarification or planning
-    if last_node == "requirement_analysis":
-        status = state.get("requirement_confirmation_status", "clear")
-        remaining = plan[cursor:]
-        if status == "unclear":
-            return plan[:cursor] + ["requirement_clarification"] + remaining
-        else:
-            return plan[:cursor] + ["tech_lead_plan"] + remaining
-
     # After any department lead plan: expand with sub-agent sequence
     if last_node in LEAD_PLAN_NODES:
         sub_plan = state.get("sub_plan", [])
@@ -249,15 +215,6 @@ def expand_plan_after_node(
                 expansion.append(dispatch_key)
             expansion.append(agent_id)
         return plan[:cursor] + expansion + remaining
-
-    # After tester failure: insert developer->tester reflow
-    if last_node == "tester" and not state.get("test_passed", True):
-        reflow = state.get("reflow_count", 0)
-        max_reflow = state.get("max_reflow", 2)
-        if reflow <= max_reflow:
-            remaining = plan[cursor:]
-            dept_dispatch = DEPT_DISPATCH.get("TECH", "tech_dispatch")
-            return plan[:cursor] + [dept_dispatch, "developer", dept_dispatch, "tester"] + remaining
 
     return plan
 
@@ -332,6 +289,17 @@ async def execute_step(
 
     try:
         while cursor < len(plan):
+            # Check if session was cancelled by user
+            if session.cancelled:
+                logger.info(f"StepExecutor: Session cancelled, stopping execution.")
+                session.state = state
+                session.execution_plan = plan
+                session.cursor = cursor
+                save_session(session_id, session)
+                await emit_sse({"type": "stopped"})
+                await emit_sse(None)
+                return
+
             node_name = plan[cursor]
             node_func = NODE_REGISTRY.get(node_name)
 

@@ -28,6 +28,7 @@ import {
   Upload,
   FileText,
   SlidersHorizontal,
+  Square,
 } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -115,6 +116,7 @@ const GUIDE_DEMO_FLASH_LINES = [
 
 function findSubAgentMeta(registry, agentId) {
   for (const [deptId, agents] of Object.entries(registry)) {
+    if (!Array.isArray(agents)) continue;
     const found = agents.find((agent) => agent.id === agentId);
     if (found) {
       return { ...found, deptId };
@@ -309,25 +311,32 @@ function TreeNode({ node, level = 0 }) {
 }
 
 function buildConversationMeta(registry, targetAgent, targetType, departmentHint) {
+  const leadCfg = registry._lead_configs || {};
+
   if (targetAgent === 'CEO') {
+    const ceoCfg = leadCfg.CEO;
+    const ceoName = (ceoCfg && ceoCfg.name) || 'CEO 总智能体';
     return {
-      label: 'CEO 总智能体',
-      subtitle: '跨部门编排',
+      label: ceoName,
+      subtitle: (ceoCfg && ceoCfg.description) || '跨部门编排',
       department: 'CEO',
       modeLabel: 'CEO 编排模式',
       greeting:
-        '这里是 CEO 独立会话。适合直接提跨部门任务，比如“先分析市场，再输出方案，再安排维修”。',
+        `这里是 ${ceoName} 独立会话。适合直接提跨部门任务，比如”先分析市场，再输出方案，再安排维修”。`,
     };
   }
 
   if (targetType === 'orchestrator') {
     const dept = DEPARTMENTS.find((item) => item.id === targetAgent);
+    const deptCfg = leadCfg[targetAgent];
+    const deptName = (deptCfg && deptCfg.name) || dept?.name || targetAgent;
+    const deptSummary = (deptCfg && deptCfg.description) || dept?.summary || '部门内部编排';
     return {
-      label: dept?.name || targetAgent,
-      subtitle: dept?.summary || '部门内部编排',
+      label: deptName,
+      subtitle: deptSummary,
       department: targetAgent,
       modeLabel: '部门长编排模式',
-      greeting: `这里是 ${dept?.name || targetAgent} 的独立会话。你只需要提目标，这个部门长会自己调度下面的小智能体。`,
+      greeting: `这里是 ${deptName} 的独立会话。你只需要提目标，这个部门长会自己调度下面的小智能体。`,
     };
   }
 
@@ -1427,6 +1436,7 @@ function App() {
   const [knowledgeBases, setKnowledgeBases] = useState([]);
   const [selectedKnowledgeBaseId, setSelectedKnowledgeBaseId] = useState(null);
   const [agentKbConfig, setAgentKbConfig] = useState({ open: false, agent: null, selectedKbIds: [] });
+  const [agentEditConfig, setAgentEditConfig] = useState({ open: false, agentId: null, agentType: null, deptId: null, name: '', description: '', system_prompt: '', context_turns: 3, selectedKbIds: [], saving: false });
   const [input, setInput] = useState('');
   const [expandedDept, setExpandedDept] = useState(isStandaloneMode ? standaloneDept.id : '');
   const [showExecutionPanel, setShowExecutionPanel] = useState(true);
@@ -1440,6 +1450,7 @@ function App() {
   });
   const [currentConversationId, setCurrentConversationId] = useState(null);
   const messagesEndRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
   useEffect(() => {
     axios.get(`${API_URL}/registry`).then((res) => setRegistry(res.data));
@@ -1632,6 +1643,12 @@ function App() {
               }
               return { ...conversation, loading: false, activeAgent: conversation.label, taskPhase: data.task_phase || conversation.taskPhase, requirementConfirmationStatus: data.requirement_confirmation_status || conversation.requirementConfirmationStatus, awaitingConfirmation: false, confirmationMeta: null, messages };
             });
+          } else if (data.type === 'stopped') {
+            updateConversation(conversationId, (conversation) => ({
+              ...conversation,
+              loading: false,
+              messages: conversation.messages.map((m) => ({ ...m, isStreaming: false })),
+            }));
           } else if (data.type === 'error') {
             throw new Error(data.message);
           }
@@ -1686,6 +1703,8 @@ function App() {
     }
 
     try {
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
       const response = await fetch(`${API_URL}/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1698,16 +1717,49 @@ function App() {
           confirmation_action: action,
           modification_feedback: action === 'modify' ? feedback : null,
         }),
+        signal: controller.signal,
       });
       await processSSEStream(response, conversationId);
     } catch (error) {
+      if (error.name === 'AbortError') return;
       console.error('Confirmation error:', error);
       updateConversation(conversationId, (conv) => ({
         ...conv,
         loading: false,
         messages: [...conv.messages, { id: `msg_${Date.now()}_error`, role: 'assistant', content: '抱歉，系统响应出错，请稍后再试。', targetContent: '抱歉，系统响应出错，请稍后再试。', department: '系统提示', isAnimating: false, isStreaming: false }],
       }));
+    } finally {
+      abortControllerRef.current = null;
     }
+  };
+
+  const handleStop = async () => {
+    if (!currentConversation) return;
+    const conversationId = currentConversation.id;
+
+    // 1. Abort the SSE connection
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+
+    // 2. Notify backend to cancel
+    try {
+      await fetch(`${API_URL}/chat/stop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: conversationId }),
+      });
+    } catch (e) {
+      console.warn('Failed to notify backend stop:', e);
+    }
+
+    // 3. Update UI state
+    updateConversation(conversationId, (conv) => ({
+      ...conv,
+      loading: false,
+      messages: conv.messages.map((m) => ({ ...m, isStreaming: false })),
+    }));
   };
 
   const handleSend = async () => {
@@ -1748,6 +1800,8 @@ function App() {
     });
 
     try {
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
       const response = await fetch(`${API_URL}/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1761,10 +1815,12 @@ function App() {
           task_phase: currentConversation.taskPhase || null,
           original_requirement: originalRequirement || null,
         }),
+        signal: controller.signal,
       });
 
       await processSSEStream(response, conversationId);
     } catch (error) {
+      if (error.name === 'AbortError') return;
       console.error('Streaming error:', error);
       updateConversation(conversationId, (conversation) => ({
         ...conversation,
@@ -1782,6 +1838,8 @@ function App() {
           },
         ],
       }));
+    } finally {
+      abortControllerRef.current = null;
     }
   };
 
@@ -1809,6 +1867,66 @@ function App() {
       agent: sub,
       selectedKbIds: (sub.knowledge_bases || []).map((kb) => kb.id),
     });
+  };
+
+  const openAgentEditConfig = async (agentId, agentType, deptId) => {
+    try {
+      const { data } = await axios.get(`${API_URL}/agent-configs/${agentId}`);
+      let kbIds = [];
+      if (agentType === 'sub') {
+        const sub = findSubAgentMeta(registry, agentId);
+        kbIds = (sub?.knowledge_bases || []).map((kb) => kb.id);
+      }
+      setAgentEditConfig({
+        open: true,
+        agentId,
+        agentType,
+        deptId,
+        name: data.name || '',
+        description: data.description || '',
+        system_prompt: data.system_prompt || '',
+        context_turns: data.context_turns ?? 3,
+        selectedKbIds: kbIds,
+        saving: false,
+      });
+    } catch {
+      setAgentEditConfig({
+        open: true,
+        agentId,
+        agentType,
+        deptId,
+        name: '',
+        description: '',
+        system_prompt: '',
+        context_turns: 3,
+        selectedKbIds: [],
+        saving: false,
+      });
+    }
+  };
+
+  const saveAgentEditConfig = async () => {
+    if (!agentEditConfig.agentId) return;
+    setAgentEditConfig((prev) => ({ ...prev, saving: true }));
+    try {
+      await axios.put(`${API_URL}/agent-configs/${agentEditConfig.agentId}`, {
+        name: agentEditConfig.name,
+        description: agentEditConfig.description,
+        system_prompt: agentEditConfig.system_prompt,
+        context_turns: agentEditConfig.context_turns,
+      });
+      if (agentEditConfig.agentType === 'sub') {
+        await axios.put(`${API_URL}/agent-kb-bindings/${agentEditConfig.agentId}`, {
+          kb_ids: agentEditConfig.selectedKbIds,
+        });
+      }
+      await refreshRegistry();
+      await refreshKnowledgeBases();
+      setAgentEditConfig({ open: false, agentId: null, agentType: null, deptId: null, name: '', description: '', system_prompt: '', context_turns: 3, selectedKbIds: [], saving: false });
+    } catch (err) {
+      console.error('Save agent config error:', err);
+      setAgentEditConfig((prev) => ({ ...prev, saving: false }));
+    }
   };
 
   const saveAgentKbConfig = async () => {
@@ -2001,6 +2119,7 @@ function App() {
                   </>
                 )}
               </div>
+              <div className="mt-4 flex gap-2">
               <button
                 onClick={() => {
                   if (isStandaloneMode) {
@@ -2009,13 +2128,23 @@ function App() {
                     openConversationForTarget('CEO', 'orchestrator', 'CEO');
                   }
                 }}
-                className="mt-4 w-full rounded-2xl bg-[linear-gradient(135deg,#0ea5e9,#2563eb)] px-4 py-3 text-sm font-black text-white transition hover:-translate-y-0.5 hover:shadow-[0_16px_30px_rgba(37,99,235,0.22)]"
+                className="flex-1 rounded-2xl bg-[linear-gradient(135deg,#0ea5e9,#2563eb)] px-4 py-3 text-sm font-black text-white transition hover:-translate-y-0.5 hover:shadow-[0_16px_30px_rgba(37,99,235,0.22)]"
               >
                 <span className="inline-flex items-center gap-2">
                   <PlusSquare size={16} />
                   {isStandaloneMode ? `新建 ${standaloneDept.name} 对话` : '新建 CEO 对话'}
                 </span>
               </button>
+              {!isStandaloneMode && (
+                <button
+                  onClick={() => openAgentEditConfig('CEO', 'lead', 'CEO')}
+                  className="rounded-2xl border border-slate-200 bg-white p-3 text-slate-500 transition hover:border-sky-200 hover:text-sky-600"
+                  title="配置 CEO"
+                >
+                  <Settings2 size={16} />
+                </button>
+              )}
+              </div>
             </div>
           </div>
 
@@ -2038,6 +2167,9 @@ function App() {
                 const Icon = dept.icon;
                 const isExpanded = expandedDept === dept.id;
                 const isSelected = currentDeptSelection === dept.id && !currentAgentSelection;
+                const leadCfg = registry._lead_configs?.[dept.id];
+                const deptName = (leadCfg && leadCfg.name) || dept.name;
+                const deptSummary = (leadCfg && leadCfg.description) || dept.summary;
 
                 return (
                   <div key={dept.id} className={`rounded-3xl border p-4 transition-all duration-300 ${
@@ -2061,8 +2193,8 @@ function App() {
                           <Icon size={18} />
                         </div>
                         <div>
-                          <div className="text-sm font-bold text-slate-900">{dept.name}</div>
-                          <div className="mt-1 text-xs text-slate-500">{dept.summary}</div>
+                          <div className="text-sm font-bold text-slate-900">{deptName}</div>
+                          <div className="mt-1 text-xs text-slate-500">{deptSummary}</div>
                         </div>
                       </div>
                       <button
@@ -2073,12 +2205,21 @@ function App() {
                       </button>
                     </div>
 
-                    <button
-                      onClick={() => openConversationForTarget(dept.id, 'orchestrator', dept.id)}
-                      className="mt-4 w-full rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-700 transition hover:bg-sky-100 hover:shadow-[0_10px_24px_rgba(14,165,233,0.12)]"
-                    >
-                      新建部门长对话
-                    </button>
+                    <div className="mt-4 flex gap-2">
+                      <button
+                        onClick={() => openConversationForTarget(dept.id, 'orchestrator', dept.id)}
+                        className="flex-1 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-700 transition hover:bg-sky-100 hover:shadow-[0_10px_24px_rgba(14,165,233,0.12)]"
+                      >
+                        新建部门长对话
+                      </button>
+                      <button
+                        onClick={() => openAgentEditConfig(dept.id, 'lead', dept.id)}
+                        className="rounded-2xl border border-slate-200 bg-white p-3 text-slate-500 transition hover:border-sky-200 hover:text-sky-600"
+                        title={`配置 ${deptName}`}
+                      >
+                        <Settings2 size={16} />
+                      </button>
+                    </div>
 
                     {isExpanded && registry[dept.id] && (
                       <div className="mt-4 space-y-2">
@@ -2103,7 +2244,7 @@ function App() {
                                   <div className="mt-1 text-xs leading-5 text-slate-500">{sub.description}</div>
                                 </button>
                                 <button
-                                  onClick={() => openAgentKbConfig(sub)}
+                                  onClick={() => openAgentEditConfig(sub.id, 'sub', dept.id)}
                                   className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:border-sky-200 hover:text-sky-700"
                                 >
                                   配置
@@ -2358,14 +2499,24 @@ function App() {
                     <div className="text-xs text-slate-400">
                       `Enter` 发送，`Shift + Enter` 换行
                     </div>
-                    <button
-                      onClick={handleSend}
-                      disabled={currentConversation?.loading || !input.trim()}
-                      className="inline-flex items-center gap-2 rounded-2xl bg-[linear-gradient(135deg,#0ea5e9,#2563eb)] px-5 py-3 text-sm font-black text-white shadow-[0_16px_32px_rgba(37,99,235,0.2)] transition hover:-translate-y-0.5 hover:shadow-[0_20px_36px_rgba(37,99,235,0.24)] disabled:bg-slate-200 disabled:text-slate-400"
-                    >
-                      <Send size={16} />
-                      发送
-                    </button>
+                    {currentConversation?.loading ? (
+                      <button
+                        onClick={handleStop}
+                        className="inline-flex items-center gap-2 rounded-2xl bg-[linear-gradient(135deg,#ef4444,#dc2626)] px-5 py-3 text-sm font-black text-white shadow-[0_16px_32px_rgba(239,68,68,0.2)] transition hover:-translate-y-0.5 hover:shadow-[0_20px_36px_rgba(239,68,68,0.24)]"
+                      >
+                        <Square size={16} fill="currentColor" />
+                        停止
+                      </button>
+                    ) : (
+                      <button
+                        onClick={handleSend}
+                        disabled={!input.trim()}
+                        className="inline-flex items-center gap-2 rounded-2xl bg-[linear-gradient(135deg,#0ea5e9,#2563eb)] px-5 py-3 text-sm font-black text-white shadow-[0_16px_32px_rgba(37,99,235,0.2)] transition hover:-translate-y-0.5 hover:shadow-[0_20px_36px_rgba(37,99,235,0.24)] disabled:bg-slate-200 disabled:text-slate-400"
+                      >
+                        <Send size={16} />
+                        发送
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -2621,6 +2772,136 @@ function App() {
                 className="rounded-2xl bg-[linear-gradient(135deg,#0ea5e9,#2563eb)] px-5 py-3 text-sm font-black text-white"
               >
                 保存配置
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {agentEditConfig.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/20 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-2xl rounded-[28px] border border-sky-100 bg-white p-6 shadow-[0_30px_80px_rgba(15,23,42,0.16)]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-sm font-black text-slate-900">
+                  {agentEditConfig.agentType === 'sub' ? '子智能体配置' : agentEditConfig.agentId === 'CEO' ? 'CEO 配置' : '部门长配置'} — {agentEditConfig.name || agentEditConfig.agentId}
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  {agentEditConfig.agentType === 'sub' ? '配置名称、描述、提示词和知识库绑定' : '配置名称、描述和系统提示词'}
+                </div>
+              </div>
+              <button
+                onClick={() => setAgentEditConfig({ open: false, agentId: null, agentType: null, deptId: null, name: '', description: '', system_prompt: '', context_turns: 3, selectedKbIds: [], saving: false })}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600"
+              >
+                关闭
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-4 max-h-[520px] overflow-y-auto">
+              <div>
+                <label className="text-xs font-bold text-slate-600">名称</label>
+                <input
+                  value={agentEditConfig.name}
+                  onChange={(e) => setAgentEditConfig((prev) => ({ ...prev, name: e.target.value }))}
+                  placeholder="智能体名称"
+                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-sky-300"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-600">描述</label>
+                <input
+                  value={agentEditConfig.description}
+                  onChange={(e) => setAgentEditConfig((prev) => ({ ...prev, description: e.target.value }))}
+                  placeholder="智能体描述"
+                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-sky-300"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-600">系统提示词</label>
+                <div className="mt-1 text-[11px] text-slate-400">修改后实时生效。支持 {'{query}'} 占位符引用用户输入。</div>
+                <textarea
+                  value={agentEditConfig.system_prompt}
+                  onChange={(e) => setAgentEditConfig((prev) => ({ ...prev, system_prompt: e.target.value }))}
+                  placeholder="系统提示词"
+                  rows={6}
+                  className="mt-2 w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 outline-none focus:border-sky-300"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-600">上下文轮数</label>
+                <div className="mt-1 text-[11px] text-slate-400">LLM 调用时携带的历史对话轮数（0 = 无上下文记忆）</div>
+                <div className="mt-2 flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={0}
+                    max={50}
+                    value={agentEditConfig.context_turns}
+                    onChange={(e) => setAgentEditConfig((prev) => ({ ...prev, context_turns: parseInt(e.target.value, 10) }))}
+                    className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-slate-200 accent-sky-500"
+                  />
+                  <span className="w-8 text-center text-sm font-bold text-slate-700">{agentEditConfig.context_turns}</span>
+                </div>
+              </div>
+
+              {agentEditConfig.agentType === 'sub' && (
+                <div>
+                  <label className="text-xs font-bold text-slate-600">知识库绑定</label>
+                  <div className="mt-2 grid gap-2">
+                    {knowledgeBases.length === 0 ? (
+                      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
+                        当前还没有知识库，先去知识库管理中新建。
+                      </div>
+                    ) : (
+                      knowledgeBases.map((kb) => {
+                        const checked = agentEditConfig.selectedKbIds.includes(kb.id);
+                        return (
+                          <label
+                            key={kb.id}
+                            className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-4 py-3 transition ${
+                              checked ? 'border-sky-300 bg-sky-50' : 'border-slate-200 bg-white'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => {
+                                setAgentEditConfig((prev) => ({
+                                  ...prev,
+                                  selectedKbIds: e.target.checked
+                                    ? [...prev.selectedKbIds, kb.id]
+                                    : prev.selectedKbIds.filter((item) => item !== kb.id),
+                                }));
+                              }}
+                              className="mt-1 h-4 w-4 rounded border-slate-300 text-sky-600"
+                            />
+                            <div>
+                              <div className="text-sm font-bold text-slate-900">{kb.icon} {kb.name}</div>
+                              <div className="mt-1 text-xs text-slate-500">{kb.description || '暂无描述'}</div>
+                            </div>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                onClick={() => setAgentEditConfig({ open: false, agentId: null, agentType: null, deptId: null, name: '', description: '', system_prompt: '', context_turns: 3, selectedKbIds: [], saving: false })}
+                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700"
+              >
+                取消
+              </button>
+              <button
+                onClick={saveAgentEditConfig}
+                disabled={agentEditConfig.saving}
+                className="rounded-2xl bg-[linear-gradient(135deg,#0ea5e9,#2563eb)] px-5 py-3 text-sm font-black text-white disabled:opacity-50"
+              >
+                {agentEditConfig.saving ? '保存中...' : '保存配置'}
               </button>
             </div>
           </div>
