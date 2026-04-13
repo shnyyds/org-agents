@@ -10,6 +10,7 @@ from app.state import AgentState
 from app.kb import kb_service
 from app.agent_kb import agent_kb_service
 from app.agent_config import agent_config_service
+from app.skill import skill_service, agent_skill_service
 
 load_dotenv()
 
@@ -278,13 +279,33 @@ class AgentConfigInput(BaseModel):
     user_prompt: Optional[str] = ""
     context_turns: Optional[int] = None
 
+
+class SkillCreate(BaseModel):
+    name: str
+    description: Optional[str] = ""
+    content: Optional[str] = ""
+    enabled: Optional[bool] = True
+
+
+class SkillUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    content: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+class AgentSkillBindingInput(BaseModel):
+    skill_ids: List[str]
+
 @app.get("/registry")
 async def get_registry():
     """
     Returns the full registry of departments and their sub-agents.
     """
     bindings = agent_kb_service.list_bindings()
+    skill_bindings = agent_skill_service.list_bindings()
     kb_map = {kb["id"]: kb for kb in kb_service.list_kb_summaries()}
+    all_skills = {s["id"]: s for s in skill_service.list_skills()}
     all_configs = agent_config_service.list_configs()
 
     registry = {}
@@ -292,6 +313,7 @@ async def get_registry():
         registry[dept_id] = []
         for agent in agents:
             kb_ids = bindings.get(agent["id"], [])
+            s_ids = skill_bindings.get(agent["id"], [])
             cfg = all_configs.get(agent["id"])
             entry = {
                 **agent,
@@ -299,6 +321,7 @@ async def get_registry():
                 "description": cfg["description"] if cfg and cfg.get("description") else agent["description"],
                 "has_custom_prompt": bool(cfg and cfg.get("system_prompt")),
                 "knowledge_bases": [kb_map[kb_id] for kb_id in kb_ids if kb_id in kb_map],
+                "skills": [{"id": all_skills[sid]["id"], "name": all_skills[sid]["name"]} for sid in s_ids if sid in all_skills],
             }
             registry[dept_id].append(entry)
 
@@ -354,6 +377,76 @@ async def update_agent_config(agent_id: str, payload: AgentConfigInput):
         context_turns=payload.context_turns,
     )
     return {"agent_id": agent_id, **config}
+
+# ---------------------------------------------------------------------------
+# Skills CRUD
+# ---------------------------------------------------------------------------
+
+@app.get("/skills")
+async def list_skills():
+    return skill_service.list_skills()
+
+
+@app.post("/skills")
+async def create_skill(payload: SkillCreate):
+    return skill_service.create_skill(
+        name=payload.name,
+        description=payload.description or "",
+        content=payload.content or "",
+        enabled=payload.enabled if payload.enabled is not None else True,
+    )
+
+
+@app.get("/skills/{skill_id}")
+async def get_skill(skill_id: str):
+    skill = skill_service.get_skill(skill_id)
+    if not skill:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    return skill
+
+
+@app.put("/skills/{skill_id}")
+async def update_skill(skill_id: str, payload: SkillUpdate):
+    updated = skill_service.update_skill(skill_id, **payload.model_dump(exclude_none=True))
+    if not updated:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    return updated
+
+
+@app.delete("/skills/{skill_id}")
+async def delete_skill(skill_id: str):
+    deleted = skill_service.delete_skill(skill_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Agent-Skill Bindings
+# ---------------------------------------------------------------------------
+
+@app.get("/agent-skill-bindings/{agent_id}")
+async def get_agent_skill_binding(agent_id: str):
+    if agent_id not in get_all_sub_agent_ids():
+        raise HTTPException(status_code=404, detail="Sub-agent not found")
+    skill_ids = agent_skill_service.get_binding(agent_id)
+    all_skills = {s["id"]: s for s in skill_service.list_skills()}
+    return {
+        "agent_id": agent_id,
+        "skill_ids": skill_ids,
+        "skills": [all_skills[sid] for sid in skill_ids if sid in all_skills],
+    }
+
+
+@app.put("/agent-skill-bindings/{agent_id}")
+async def update_agent_skill_binding(agent_id: str, payload: AgentSkillBindingInput):
+    if agent_id not in get_all_sub_agent_ids():
+        raise HTTPException(status_code=404, detail="Sub-agent not found")
+    valid_ids = {s["id"] for s in skill_service.list_skills()}
+    cleaned = [sid for sid in payload.skill_ids if sid in valid_ids]
+    agent_skill_service.set_binding(agent_id, cleaned)
+    return await get_agent_skill_binding(agent_id)
+
 
 class StopInput(BaseModel):
     session_id: str
@@ -428,51 +521,182 @@ async def chat_stream(input: UserInput):
 
         else:
             # ===== Fresh request mode =====
-            mode = "ceo"
-            if input.target_type == "orchestrator" and input.target_agent in ["MARKET", "TECH", "SALES", "REPAIR", "CS", "USER"]:
-                mode = "department"
-            elif input.target_type == "agent":
-                mode = "agent"
 
-            initial_state = {
-                "messages": build_message_history(input.history, input.query),
-                "context": {
-                    "user_id": input.user_id,
-                    "session_id": input.session_id,
-                    "target_agent": input.target_agent,
-                    "target_type": input.target_type,
-                    "stream_writer": emit_sse,
-                    "streamed_nodes": set(),
-                },
-                "results": {},
-                "execution_log": [],
-                "plan": [],
-                "plan_step": 0,
-                "sub_plan": [],
-                "sub_plan_step": 0,
-                "task_phase": input.task_phase or "idle",
-                "requirement_confirmation_status": "pending",
-                "original_requirement": input.original_requirement or "",
-                "latest_supplement": "",
-                "confirmed_requirement": "",
-                "current_executor": "",
-                "sub_task_results": {},
-                "reflow_count": 0,
-                "max_reflow": 2,
-            }
+            # ── Edict 模式：StarCore + OpenClaw 走 subagent 链 ──
+            from app.core.backend_selector import use_openclaw
+            if (
+                input.target_agent == "TECH"
+                and input.target_type == "orchestrator"
+                and use_openclaw()
+            ):
+                _STAGE_AGENT_NAMES = {
+                    "chief_assistant": "首席助理 ChiefAssistant",
+                    "strategy_hub": "策略中心 StrategyHub",
+                    "review_board": "评审委 ReviewBoard",
+                    "tech_lead_dispatch": "星核StarCore",
+                    "tech_lead_summary": "星核StarCore",
+                    "product": "蓝图BlueForm",
+                    "developer": "灵码SmartCode",
+                    "tester": "检博士CheckDoc",
+                    "devops": "运小盾OpsShield",
+                    "completed": "星核StarCore",
+                }
+                _STAGE_STATUS_LABELS = {
+                    "chief_assistant": "需求分拣完成",
+                    "strategy_hub": "计划制定完成",
+                    "review_board": "审核把关完成",
+                    "tech_lead_dispatch": "任务派发中",
+                    "tech_lead_summary": "执行汇总完成",
+                    "product": "产品设计完成",
+                    "developer": "代码实现完成",
+                    "tester": "质量检测完成",
+                    "devops": "部署规划完成",
+                    "completed": "全部任务完成",
+                }
 
-            plan = compute_initial_plan(mode, input.target_agent)
-            session = SessionData(
-                state=initial_state,
-                execution_plan=plan,
-                cursor=0,
-                mode=mode,
-                target_agent=input.target_agent,
-                target_type=input.target_type,
-            )
-            save_session(input.session_id, session)
+                async def _run_edict():
+                    try:
+                        import time
+                        from app.core.openclaw import (
+                            stream_openclaw_gateway,
+                            detect_pipeline_stage,
+                        )
+                        # 构建包含历史上下文的消息
+                        parts = []
+                        for item in (input.history or []):
+                            role = item.get("role", "")
+                            content = item.get("content", "")
+                            if role == "user":
+                                parts.append(f"用户：{content}")
+                            elif role == "assistant":
+                                parts.append(f"助理：{content}")
+                        parts.append(f"用户：{input.query}")
+                        edict_message = "\n".join(parts)
+                        last_stage = None
+                        stage_start_ms: dict = {}
+                        stage_buffer: dict = {}
+                        # Rolling window for cross-token marker detection (max 80 chars)
+                        _detect_window = ""
+                        _WINDOW_SIZE = 80
 
-            task = asyncio.create_task(execute_step(input.session_id, session, emit_sse))
+                        async def _flush_stage(stage: str):
+                            """结算一个阶段，发送 execution_log_entry 事件。"""
+                            if stage is None:
+                                return
+                            start = stage_start_ms.get(stage, time.time() * 1000)
+                            duration_ms = int(time.time() * 1000 - start)
+                            text = stage_buffer.get(stage, "")
+                            summary = text[:150].strip()
+                            await emit_sse({
+                                "type": "execution_log_entry",
+                                "entry": {
+                                    "agent": _STAGE_AGENT_NAMES.get(stage, stage),
+                                    "stage": stage,
+                                    "status": _STAGE_STATUS_LABELS.get(stage, "处理完成"),
+                                    "summary": summary,
+                                    "duration_ms": duration_ms,
+                                    "department": "TECH",
+                                },
+                            })
+
+                        _token_count = 0
+                        async for delta in stream_openclaw_gateway(
+                            agent_id="org_chief_assistant",
+                            message=edict_message,
+                            timeout=300,
+                        ):
+                            _token_count += 1
+                            # Append to rolling window and check for stage markers
+                            _detect_window = (_detect_window + delta)[-_WINDOW_SIZE:]
+                            stage = detect_pipeline_stage(_detect_window)
+                            if stage and stage != last_stage:
+                                logger.info(f"[Edict] Stage transition: {last_stage} -> {stage} (token #{_token_count})")
+                                # 结算上一阶段
+                                await _flush_stage(last_stage)
+                                last_stage = stage
+                                stage_start_ms[stage] = time.time() * 1000
+                                stage_buffer[stage] = ""
+                                await emit_sse({
+                                    "type": "phase_update",
+                                    "task_phase": stage,
+                                })
+                            # 累积当前阶段文本（只保留前300字，节省内存）
+                            if last_stage:
+                                buf = stage_buffer.get(last_stage, "")
+                                if len(buf) < 300:
+                                    stage_buffer[last_stage] = buf + delta
+                            await emit_sse({
+                                "type": "stream",
+                                "content": delta,
+                                "node": last_stage or "chief_assistant",
+                                "active_agent": _STAGE_AGENT_NAMES.get(last_stage, "星核StarCore"),
+                            })
+                        # 结算最后一个阶段
+                        logger.info(f"[Edict] Stream ended. Total tokens={_token_count}, last_stage={last_stage}, stages_seen={list(stage_start_ms.keys())}")
+                        await _flush_stage(last_stage)
+                        await emit_sse({
+                            "type": "final",
+                            "response": "",
+                            "task_phase": last_stage if last_stage == "completed" else "idle",
+                        })
+                    except Exception as exc:
+                        logger.exception("Edict pipeline error")
+                        await emit_sse({
+                            "type": "error",
+                            "message": f"Edict 流水线出错：{str(exc)[:200]}",
+                        })
+                    finally:
+                        await emit_sse(None)
+
+                task = asyncio.create_task(_run_edict())
+
+            else:
+                # ── 原有 step_executor 流程 ──
+                mode = "ceo"
+                if input.target_type == "orchestrator" and input.target_agent in ["MARKET", "TECH", "SALES", "REPAIR", "CS", "USER"]:
+                    mode = "department"
+                elif input.target_type == "agent":
+                    mode = "agent"
+
+                initial_state = {
+                    "messages": build_message_history(input.history, input.query),
+                    "context": {
+                        "user_id": input.user_id,
+                        "session_id": input.session_id,
+                        "target_agent": input.target_agent,
+                        "target_type": input.target_type,
+                        "stream_writer": emit_sse,
+                        "streamed_nodes": set(),
+                    },
+                    "results": {},
+                    "execution_log": [],
+                    "plan": [],
+                    "plan_step": 0,
+                    "sub_plan": [],
+                    "sub_plan_step": 0,
+                    "task_phase": input.task_phase or "idle",
+                    "requirement_confirmation_status": "pending",
+                    "original_requirement": input.original_requirement or "",
+                    "latest_supplement": "",
+                    "confirmed_requirement": "",
+                    "current_executor": "",
+                    "sub_task_results": {},
+                    "reflow_count": 0,
+                    "max_reflow": 2,
+                }
+
+                plan = compute_initial_plan(mode, input.target_agent)
+                session = SessionData(
+                    state=initial_state,
+                    execution_plan=plan,
+                    cursor=0,
+                    mode=mode,
+                    target_agent=input.target_agent,
+                    target_type=input.target_type,
+                )
+                save_session(input.session_id, session)
+
+                task = asyncio.create_task(execute_step(input.session_id, session, emit_sse))
 
         while True:
             payload = await event_queue.get()

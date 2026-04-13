@@ -15,6 +15,7 @@ from app.utils.messages import get_last_user_message, get_history_messages
 from app.utils.labels import format_sub_agent_plan
 from app.utils.streaming import stream_llm_text
 from app.utils.agent_knowledge import resolve_system_prompt
+from app.core.backend_selector import use_openclaw
 from app.agent_config import agent_config_service
 
 
@@ -92,13 +93,25 @@ class DepartmentLeadAgent(DepartmentLead):
 
         messages = [SystemMessage(content=system_prompt), *history, HumanMessage(content=query)]
 
-        response_text = await stream_llm_text(
-            llm=self.llm,
-            prompt=messages,
-            state=state,
-            node_name=f"{self.department.lower()}_lead_plan",
-            active_agent=self._display_name,
-        )
+        if use_openclaw(self.department):
+            from app.utils.openclaw_streaming import stream_openclaw_text
+            from app.departments.registry import _build_openclaw_message
+            oc_message = _build_openclaw_message(system_prompt, query, history)
+            response_text = await stream_openclaw_text(
+                agent_id=f"org_{self.department.lower()}_lead",
+                message=oc_message,
+                state=state,
+                node_name=f"{self.department.lower()}_lead_plan",
+                active_agent=self._display_name,
+            )
+        else:
+            response_text = await stream_llm_text(
+                llm=self.llm,
+                prompt=messages,
+                state=state,
+                node_name=f"{self.department.lower()}_lead_plan",
+                active_agent=self._display_name,
+            )
 
         try:
             content = response_text.strip()

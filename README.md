@@ -46,12 +46,34 @@
 5. **子智能体执行** → 按子计划依次执行具体任务
 6. **结果汇总** → CEO 生成高层总结报告
 
+### StarCore Edict 流水线（技术部）
+
+技术部（星核StarCore）支持 Edict 模式——编排逻辑写在 SOUL.md 提示词里，由 OpenClaw subagent 链式调用驱动，后端只需调入口 agent，整条链在一次调用里跑完：
+
+```
+用户 → 首席助理 ChiefAssistant (分拣: 闲聊/任务)
+         ├─ 闲聊 → 直接回复
+         └─ 任务 → subagent 调用 策略中心 StrategyHub
+                      │
+                      └─ subagent → 评审委 ReviewBoard (准奏/封驳，最多3轮)
+                      │
+                      └─ subagent → 星核部长 TechLead (派发)
+                                       ├─ subagent → 蓝图BlueForm (产品)
+                                       ├─ subagent → 灵码SmartCode (开发)
+                                       ├─ subagent → 检博士CheckDoc (测试)
+                                       └─ subagent → 运小盾OpsShield (运维)
+                                       │
+                                       └── 汇总 → 策略中心 → 首席助理 → 用户
+```
+
+触发条件：`target_agent=TECH` + `target_type=orchestrator` + `LLM_BACKEND=openclaw`，其他情况走原有 step_executor 流程。
+
 ## 🛠️ 技术栈
 
 ### 后端
 - **框架**: FastAPI (异步 Web 框架)
 - **智能体编排**: LangGraph (状态图工作流)
-- **LLM**: LangChain + 通义千问 (Qwen)
+- **LLM**: LangChain + 通义千问 (Qwen) / OpenClaw Gateway (可切换)
 - **向量数据库**: Qdrant (知识库检索)
 - **流式输出**: SSE (Server-Sent Events)
 
@@ -73,12 +95,15 @@ org-agents/
 │   │   ├── state.py                  # AgentState 定义，LangGraph 状态管理
 │   │   ├── session_store.py          # 会话状态存储，支持分步执行和取消
 │   │   ├── step_executor.py          # 分步执行引擎，逐节点执行并支持暂停/确认
+│   │   ├── skill.py                    # 技能服务（CRUD）+ 智能体-技能绑定服务
 │   │   ├── agent_config.py           # 智能体配置服务（提示词、名称、描述）
 │   │   ├── kb.py                     # 知识库服务，管理文档和向量检索
 │   │   ├── agent_kb.py               # 智能体-知识库绑定服务
 │   │   │
 │   │   ├── core/                     # 核心模块
-│   │   │   ├── llm.py                # LLM 配置和初始化
+│   │   │   ├── llm.py                # LLM 配置和初始化（支持 OpenClaw 模式跳过）
+│   │   │   ├── openclaw.py           # OpenClaw Gateway 流式调用（/v1/chat/completions SSE）
+│   │   │   ├── backend_selector.py   # LLM 后端选择器（langchain / openclaw 切换）
 │   │   │   ├── agent.py              # 基础智能体类定义
 │   │   │   └── registry.py           # 智能体注册表，管理所有子智能体
 │   │   │
@@ -87,11 +112,13 @@ org-agents/
 │   │   │   └── registry.py           # 部门与子智能体配置注册表
 │   │   │
 │   │   ├── utils/                    # 工具模块
-│   │   │   ├── streaming.py          # 流式输出核心函数
+│   │   │   ├── streaming.py          # LangChain 流式输出
+│   │   │   ├── openclaw_streaming.py # OpenClaw Gateway 流式输出适配器
 │   │   │   ├── logger.py             # 日志配置
 │   │   │   ├── messages.py           # 消息处理工具
 │   │   │   ├── labels.py             # 标签和格式化工具
 │   │   │   ├── agent_knowledge.py    # 知识库注入与提示词解析
+│   │   │   ├── agent_skills.py       # 技能注入（XML 格式追加到系统提示词）
 │   │   │   └── retriever.py          # 向量检索工具
 │   │   │
 │   │   └── db/                       # 数据库
@@ -101,10 +128,27 @@ org-agents/
 │   │   ├── knowledge_bases.json      # 知识库元数据
 │   │   ├── agent_kb_bindings.json    # 智能体-知识库绑定关系
 │   │   ├── agent_configs.json        # 智能体自定义配置（覆盖默认值）
+│   │   ├── skills.json               # 技能库数据
+│   │   ├── agent_skill_bindings.json # 智能体-技能绑定关系
 │   │   └── kb_files/                 # 知识库文档文件
 │   │
 │   ├── scripts/                      # 脚本工具
-│   │   └── ingest_docs.py            # 文档导入脚本
+│   │   ├── ingest_docs.py            # 文档导入脚本
+│   │   └── install_openclaw_agents.sh # OpenClaw Agent 一键注册脚本
+│   │
+│   ├── agents/                       # OpenClaw Agent SOUL.md 定义
+│   │   ├── GLOBAL.md                 # 全局规则（通信协议、防停滞、安全红线）
+│   │   ├── groups/                   # 层级共享规则
+│   │   │   ├── coordination.md       # 协调层（首席助理、策略中心、评审委）
+│   │   │   └── execution.md          # 执行层（产品、开发、测试、运维）
+│   │   ├── org_chief_assistant/SOUL.md # 首席助理（Edict 入口，需求分拣）
+│   │   ├── org_strategy_hub/SOUL.md  # 策略中心（计划制定+审核+下发）
+│   │   ├── org_review_board/SOUL.md  # 评审委（四维审核）
+│   │   ├── org_ceo/SOUL.md           # CEO 总智能体
+│   │   ├── org_tech_lead/SOUL.md     # 星核StarCore（任务派发）
+│   │   ├── org_product/SOUL.md       # 蓝图BlueForm
+│   │   ├── org_developer/SOUL.md     # 灵码SmartCode
+│   │   └── ...                       # 共 27 个 Agent
 │   │
 │   ├── tests/                        # 测试
 │   │   └── test_system.py            # 系统测试
@@ -120,6 +164,8 @@ org-agents/
 │   │
 │   ├── index.html                    # HTML 模板
 │   ├── package.json                  # Node.js 依赖
+│   ├── .env.orgagents                # OrgAgents 模式环境变量
+│   ├── .env.starcore                 # StarCore 模式环境变量
 │   └── vite.config.js                # Vite 配置
 │
 ├── docs/                             # 文档
@@ -138,13 +184,15 @@ org-agents/
 **FastAPI 主入口，定义所有 API 端点**
 
 主要功能：
-- `/chat/stream` - 流式对话端点（SSE），支持分步执行与确认
+- `/chat/stream` - 流式对话端点（SSE），支持分步执行与确认，含 Edict 流水线模式
 - `/chat/stop` - 停止正在执行的流式会话
 - `/chat` - 普通对话端点
 - `/knowledge-bases/*` - 知识库管理 API
 - `/agent-kb-bindings/*` - 智能体-知识库绑定 API
 - `/agent-configs/*` - 智能体配置管理 API
-- `/registry` - 获取智能体注册表
+- `/skills/*` - 技能库 CRUD API
+- `/agent-skill-bindings/*` - 智能体-技能绑定 API
+- `/registry` - 获取智能体注册表（含技能绑定信息）
 
 ---
 
@@ -165,6 +213,15 @@ org-agents/
 - `SessionData` 存储执行计划、游标、状态等
 - 支持会话取消标记（`cancelled` 字段）
 - 自动清理过期会话
+
+---
+
+#### `backend/app/skill.py`
+**技能服务（CRUD）+ 智能体-技能绑定服务**
+
+- `SkillService` - 技能的增删改查，持久化到 `skills.json`
+- `AgentSkillService` - 智能体与技能的绑定关系管理，持久化到 `agent_skill_bindings.json`
+- 配合 `utils/agent_skills.py` 的 `inject_skills_into_prompt()` 将已启用技能以 XML 格式注入系统提示词
 
 ---
 
@@ -238,6 +295,17 @@ async def stream_llm_text(llm, prompt, state, node_name, active_agent) -> str:
 5. **流程树可视化** - 展示智能体执行流程
 6. **知识库管理** - 创建、绑定、测试知识库
 7. **智能体配置** - 自定义提示词和名称
+8. **技能管理** - 创建、编辑、删除技能，绑定到子智能体
+9. **Edict 流水线可视化** - 实时显示 Edict 各节点执行状态（EdictPipelineFlow 组件）
+10. **多模式支持** - orgagents / starcore / full 三种应用模式，通过 `VITE_APP_MODE` 切换
+
+**应用模式**：
+
+| 模式 | 说明 | CEO 入口 | 包含部门 |
+|------|------|----------|----------|
+| `orgagents` | 万象智团（默认） | 有 | 全部（不含 TECH） |
+| `starcore` | 星核 StarCore | 无 | 仅 TECH |
+| `full` | 完整模式 | 有 | 全部 6 个部门 |
 
 ---
 
@@ -282,24 +350,203 @@ async def stream_llm_text(llm, prompt, state, node_name, active_agent) -> str:
 - 自动检索相关文档并注入 prompt
 - 支持召回测试和分块预览
 
-### 7. 可视化流程树
+### 7. 技能系统
 
+- 创建可复用的技能（指令/规范/参考文档）
+- 将技能绑定到任意子智能体
+- 已启用的技能以 XML 格式自动注入系统提示词
+- 前端可视化管理技能库和绑定关系
+
+### 8. 可视化流程树
 - 实时展示智能体执行流程
 - 树形结构展示部门和子智能体
 - 每次新消息自动清空并重新记录
 
-### 8. 多会话管理
+### 9. 多会话管理
 
 - 支持同时与多个智能体对话
 - 每个会话独立的历史记录
 - 可切换到 CEO、部门部长、子智能体
 
-### 9. 会话上下文记忆
+### 10. 会话上下文记忆
 
 - 每个智能体（CEO、部门长、子智能体）调用 LLM 时可携带历史对话上下文
 - 可在智能体配置界面中独立配置"上下文轮数"（context_turns，默认 3）
 - 设为 0 则无上下文记忆，与传统单轮对话行为一致
 - 各智能体配置互不影响，部门长和子智能体可设置不同的上下文深度
+
+## 🦞 OpenClaw 深度整合
+
+### 架构概述
+
+系统支持双后端切换：默认使用 LangChain 直调 DashScope，也可切换为 OpenClaw Agent 体系。
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    org-agents 后端 (FastAPI)                      │
+│                                                                   │
+│  step_executor.py → 各节点函数 → if use_openclaw():              │
+│                                     │                             │
+│                        ┌────────────┴────────────┐               │
+│                        ▼                         ▼               │
+│               LangChain 分支              OpenClaw 分支           │
+│            (stream_llm_text)        (stream_openclaw_text)       │
+│                   │                          │                    │
+│                   ▼                          ▼                    │
+│            DashScope API            OpenClaw Gateway              │
+│            (直连流式)           /v1/chat/completions (SSE 流式)   │
+│                                          │                        │
+│                                          ▼                        │
+│                                   27 个独立 Agent                 │
+│                                 (SOUL.md + 独立工作区)            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 切换机制
+
+通过环境变量 `LLM_BACKEND` 控制，默认 `langchain`，零回归风险：
+
+| 环境变量 | 说明 |
+|----------|------|
+| `LLM_BACKEND=langchain` | 默认，所有 LLM 调用走 LangChain + DashScope |
+| `LLM_BACKEND=openclaw` | 全局切换为 OpenClaw Gateway 流式调用 |
+| `OPENCLAW_AGENTS=product,developer` | 仅指定 agent 走 OpenClaw，其余仍走 LangChain |
+
+注意：`analyze_intent_node`（CEO 意图分析）始终使用 LangChain，因为需要可靠的 JSON 解析。
+
+### 流式实现原理
+
+OpenClaw Gateway 内置了 OpenAI 兼容的 HTTP 端点 `/v1/chat/completions`，支持 `stream: true`：
+
+```
+Python 后端                    OpenClaw Gateway                  LLM Provider
+    │                               │                               │
+    │  POST /v1/chat/completions    │                               │
+    │  stream: true                 │                               │
+    │  model: "org_faq"             │                               │
+    │ ─────────────────────────────>│                               │
+    │                               │  调用 org_faq Agent            │
+    │                               │  (加载 SOUL.md + 工作区)       │
+    │                               │ ─────────────────────────────>│
+    │                               │                               │
+    │   data: {"delta":"你"}        │<── token ─────────────────────│
+    │<──────────────────────────────│                               │
+    │   → SSE emit to frontend      │                               │
+    │                               │                               │
+    │   data: {"delta":"好"}        │<── token ─────────────────────│
+    │<──────────────────────────────│                               │
+    │   → SSE emit to frontend      │                               │
+    │          ...                   │          ...                  │
+    │   data: [DONE]                │                               │
+    │<──────────────────────────────│                               │
+```
+
+每个 token 从 LLM → Gateway → Python 后端 → 前端，全链路真实流式，无模拟。
+
+### 关键文件
+
+| 文件 | 作用 |
+|------|------|
+| `core/openclaw.py` | `stream_openclaw_gateway()` — 通过 httpx 异步流式调用 Gateway SSE 端点 |
+| `core/backend_selector.py` | `use_openclaw(agent_id)` — 读取环境变量决定使用哪个后端 |
+| `utils/openclaw_streaming.py` | `stream_openclaw_text()` — 与 `stream_llm_text()` 签名一致的适配器 |
+| `departments/registry.py` | `create_sub_agent_node()` 内 `if use_openclaw()` 分支 |
+| `departments/base.py` | `_lead_plan_node()` 内 `if use_openclaw()` 分支 |
+| `ceo.py` | `summarize_result_node()` 内 `if use_openclaw()` 分支 |
+| `agents/org_*/SOUL.md` | 27 个 Agent 的角色定义 |
+| `agents/GLOBAL.md` | 全局规则（通信协议、防停滞、安全红线），安装时复制为各 workspace 的 AGENTS.md |
+| `scripts/install_openclaw_agents.sh` | 一键注册脚本（workspace + subagent 白名单 + GLOBAL.md 复制） |
+
+### Agent ID 映射
+
+所有 Agent 加 `org_` 前缀，避免与 edict 项目的 Agent 冲突：
+
+| 角色 | Agent ID | SOUL.md 路径 |
+|------|----------|-------------|
+| CEO | `org_ceo` | `agents/org_ceo/SOUL.md` |
+| 首席助理 | `org_chief_assistant` | `agents/org_chief_assistant/SOUL.md` |
+| 策略中心 | `org_strategy_hub` | `agents/org_strategy_hub/SOUL.md` |
+| 评审委 | `org_review_board` | `agents/org_review_board/SOUL.md` |
+| 市场部部长 | `org_market_lead` | `agents/org_market_lead/SOUL.md` |
+| 技术部部长 | `org_tech_lead` | `agents/org_tech_lead/SOUL.md` |
+| 蓝图BlueForm | `org_product` | `agents/org_product/SOUL.md` |
+| 灵码SmartCode | `org_developer` | `agents/org_developer/SOUL.md` |
+| ... | ... | 共 27 个 |
+
+### Subagent 白名单
+
+OpenClaw 的 subagent 白名单控制 Agent 间的调用权限：
+
+```
+org_ceo              → [org_market_lead, org_tech_lead, org_sales_lead, ...]
+org_chief_assistant  → [org_strategy_hub]
+org_strategy_hub     → [org_review_board, org_tech_lead]
+org_review_board     → [org_strategy_hub, org_tech_lead]
+org_tech_lead        → [org_strategy_hub, org_review_board, org_product, org_developer, org_tester, org_devops]
+org_product          → [org_tech_lead]  (子智能体只能回报给部门长)
+```
+
+### 设置步骤
+
+#### 1. 启用 Gateway 的 OpenAI 兼容端点
+
+OpenClaw 0.2.0 默认关闭了 HTTP `/v1/chat/completions` 端点，需要手动开启：
+
+```bash
+# 方法一：用 jq 一键写入配置
+jq '.gateway.http.endpoints.chatCompletions.enabled = true' ~/.openclaw/openclaw.json > /tmp/oc.json && mv /tmp/oc.json ~/.openclaw/openclaw.json
+
+# 方法二：手动编辑 ~/.openclaw/openclaw.json，在 gateway 节点下添加：
+# "http": {"endpoints": {"chatCompletions": {"enabled": true}}}
+
+# 重启 gateway 使配置生效
+openclaw gateway restart
+```
+
+验证端点是否可用：
+```bash
+TOKEN=$(jq -r '.gateway.auth.token' ~/.openclaw/openclaw.json)
+curl -s -X POST http://127.0.0.1:18789/v1/chat/completions \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"org_chief_assistant","stream":false,"messages":[{"role":"user","content":"你好"}]}' | head -5
+```
+
+如果返回 `Method Not Allowed`，说明配置未生效，检查 JSON 格式和 gateway 是否重启。
+
+#### 2. 注册 Agent
+
+```bash
+cd backend
+bash scripts/install_openclaw_agents.sh
+```
+
+脚本会为 27 个 Agent 创建独立工作区（`~/.openclaw/workspace-org_<id>/`），复制 SOUL.md 和 GLOBAL.md，配置 subagent 白名单。
+
+#### 3. 配置环境变量
+
+在 `backend/.env` 中添加：
+
+```bash
+LLM_BACKEND=openclaw
+OPENCLAW_GATEWAY_URL=http://localhost:18789
+# OPENCLAW_GATEWAY_TOKEN 可不填，会自动从 ~/.openclaw/openclaw.json 读取
+```
+
+#### 4. 验证
+
+```bash
+# 验证 Gateway 流式端点
+curl -N -s -X POST http://localhost:18789/v1/chat/completions \
+  -H "Authorization: Bearer <your_gateway_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"org_faq","stream":true,"messages":[{"role":"user","content":"你好"}]}'
+
+# 启动后端
+python app/main.py
+
+# 前端发送请求，观察逐 token 流式输出
+```
 
 ## 🎯 快速开始
 
@@ -336,10 +583,17 @@ cd frontend
 npm install
 
 # 启动开发服务器
-npm run dev -- --host 0.0.0.0 --port 5173
+npm run dev:orgagents -- --host 0.0.0.0 --port 5173
+npm run dev:starcore -- --host 0.0.0.0 --port 5174
+
+# 构建生产版本
+npm run build:orgagents
+npm run build:starcore
 ```
 
-前端将运行在 `http://localhost:5173`
+前端5173将运行在 `http://localhost:5173`
+
+前端5174将运行在 `http://localhost:5174`
 
 ### 3. Docker 启动（可选）
 
@@ -398,14 +652,14 @@ http://localhost:5173/?mode=department&dept=REPAIR&brand=智慧运维平台
 
 #### 部门代码对照表
 
-| 代码 | 部门 | 包含的子智能体 |
-|------|------|----------------|
-| `MARKET` | 市场部 | 需求分析专员、宣传推广专员 |
-| `TECH` | 技术部 | 产品岗、开发岗、检测岗、运维部署 |
-| `SALES` | 业务部 | 服务咨询专员、方案设计专员、实施计划专员 |
-| `REPAIR` | 运维部 | 派单经理、问题识别专家、现场执行 |
-| `CS` | 客服部 | FAQ智能助手、应急调度、人工客服座席 |
-| `USER` | 用户端 | 服务状态、自主申报入口 |
+| 代码 | 部门 | 自定义名称 | 包含的子智能体 |
+|------|------|------------|----------------|
+| `MARKET` | 市场部 | 市场智脑MarketMind | 需求分析专员、宣传推广专员 |
+| `TECH` | 技术部 | 星核StarCore | 产品岗、开发岗、检测岗、运维部署 |
+| `SALES` | 业务部 | 销售领航SalesPilot | 服务咨询专员、方案设计专员、实施计划专员 |
+| `REPAIR` | 运维部 | 维修大师ServiceMaster | 派单经理、问题识别专家、现场执行 |
+| `CS` | 客服部 | 客户中心ClientLink | FAQ智能助手、应急调度、人工客服座席 |
+| `USER` | 用户端 | 智享家SmartLife | 服务状态、自主申报入口 |
 
 #### 单部门模式与完整模式的区别
 
@@ -445,6 +699,15 @@ http://localhost:5173/?mode=department&dept=REPAIR&brand=智慧运维平台
 - `GET /agent-configs/{agent_id}` - 获取智能体配置
 - `PUT /agent-configs/{agent_id}` - 更新智能体配置（提示词、名称、上下文轮数等）
 
+#### 技能管理
+- `GET /skills` - 获取所有技能
+- `POST /skills` - 创建技能
+- `GET /skills/{skill_id}` - 获取单个技能
+- `PUT /skills/{skill_id}` - 更新技能
+- `DELETE /skills/{skill_id}` - 删除技能
+- `GET /agent-skill-bindings/{agent_id}` - 获取智能体绑定的技能
+- `PUT /agent-skill-bindings/{agent_id}` - 更新智能体-技能绑定
+
 ## 🧪 测试
 
 ### 流式输出测试
@@ -473,10 +736,19 @@ python -m pytest tests/
 OPENAI_API_KEY=sk-xxx                                    # API Key
 OPENAI_API_BASE=https://dashscope.aliyuncs.com/compatible-mode/v1
 MODEL_NAME=qwen-plus                                     # 模型名称
+EMBEDDING_MODEL=text-embedding-v4                        # 向量模型
+
+# LLM 后端切换（OpenClaw 整合）
+LLM_BACKEND=langchain                                    # langchain（默认）或 openclaw
+OPENCLAW_GATEWAY_URL=http://localhost:18789               # OpenClaw Gateway 地址
+OPENCLAW_GATEWAY_TOKEN=your_gateway_token_here            # Gateway Token（可选，自动读取）
+OPENCLAW_TIMEOUT=300                                     # OpenClaw 请求超时（秒，默认 120，Edict 链路建议 300）
+# OPENCLAW_AGENTS=product,developer                      # 仅指定 agent 走 OpenClaw（可选）
 
 # Qdrant 配置
-QDRANT_URL=http://localhost:6333                         # Qdrant 地址
-QDRANT_API_KEY=                                          # API Key（可选）
+QDRANT_HOST=localhost                                    # Qdrant 主机
+QDRANT_PORT=6333                                         # Qdrant 端口
+QDRANT_COLLECTION=public_service_kb                      # 默认集合名
 
 # 日志配置
 LOG_LEVEL=INFO                                           # 日志级别
@@ -523,6 +795,27 @@ LOG_LEVEL=INFO                                           # 日志级别
 - 查看浏览器控制台错误
 - 确认防火墙/代理设置
 
+### 4. OpenClaw Gateway 返回 405 Method Not Allowed
+
+**问题**：后端调用 `/v1/chat/completions` 返回 405
+
+**解决**：
+OpenClaw 0.2.0 默认关闭了 HTTP chat completions 端点，需要手动开启：
+```bash
+jq '.gateway.http.endpoints.chatCompletions.enabled = true' ~/.openclaw/openclaw.json > /tmp/oc.json && mv /tmp/oc.json ~/.openclaw/openclaw.json
+openclaw gateway restart
+```
+
+### 5. OpenClaw 清理会话记录
+
+```bash
+# 只清会话记忆（保留 agent 注册）
+rm -f ~/.openclaw/memory/*.sqlite
+
+# 全部重置（需要重新跑 install_openclaw_agents.sh）
+openclaw reset --scope full --yes
+```
+
 ## 🤝 贡献指南
 
 欢迎提交 Issue 和 Pull Request！
@@ -535,6 +828,40 @@ LOG_LEVEL=INFO                                           # 日志级别
 5. 开启 Pull Request
 
 ## 📝 更新日志
+
+### v1.6.0 (2026-04-10)
+- ✅ StarCore Edict 流水线模式
+  - 新增 3 个编排层 Agent：首席助理 ChiefAssistant、策略中心 StrategyHub、评审委 ReviewBoard
+  - 编排逻辑写在 SOUL.md 提示词里，由 OpenClaw subagent 链式调用驱动
+  - 整条链（首席助理→策略中心→评审委→星核部长→子智能体）在一次 OpenClaw 调用里跑完
+  - 评审委四维审核（可行性/完整性/风险/资源），封驳循环最多 3 轮
+  - 新增 GLOBAL.md 全局规则（通信协议、防停滞、安全红线）
+  - 新增 groups/ 层级共享规则（协调层 + 执行层）
+  - 前端新增 Edict 流水线可视化组件，实时显示各节点执行状态
+  - 前端 TECH 部门默认对话入口改为首席助理
+  - 后端 `/chat/stream` 新增 edict 模式分支，绕过 step_executor 直接流式调用
+  - OpenClaw 超时从 120s 提升到 300s
+  - 需要在 `openclaw.json` 中开启 `gateway.http.endpoints.chatCompletions.enabled = true`
+  - Agent 总数从 24 增至 27
+
+### v1.5.0 (2026-04-09)
+- ✅ OpenClaw 深度整合（详见 [OpenClaw 深度整合](#-openclaw-深度整合) 章节）
+  - 新增双后端切换：`LLM_BACKEND=langchain|openclaw`，默认 langchain，零回归
+  - 通过 OpenClaw Gateway `/v1/chat/completions` SSE 端点实现真正的逐 token 流式输出
+  - 24 个 Agent 注册为独立 OpenClaw Agent，各有 SOUL.md 和独立工作区
+  - Subagent 白名单控制 Agent 间调用权限
+  - 一键注册脚本 `install_openclaw_agents.sh`
+  - 支持按 Agent 粒度切换后端：`OPENCLAW_AGENTS=product,developer`
+  - CEO 意图分析节点保留 LangChain（JSON 解析可靠性）
+
+### v1.4.5 (2026-04-08)
+- ✅ 技能系统（Skills）
+  - 新增技能库管理：创建、编辑、删除技能，每个技能包含名称、描述和指令内容
+  - 新增智能体-技能绑定：任意子智能体可绑定多个技能
+  - 技能自动注入：绑定的已启用技能以 XML 格式追加到智能体系统提示词末尾
+  - 前端新增「技能库管理」面板（SkillManager 组件），支持可视化创建和编辑技能
+  - 注册表 `/registry` 端点增强，返回每个智能体已绑定的技能信息
+  - 新增 API 端点：`/skills` CRUD、`/agent-skill-bindings/{agent_id}` 绑定管理
 
 ### v1.4.0 (2026-04-07)
 - ✅ 会话上下文记忆
@@ -604,6 +931,7 @@ OrgAgents 开发团队
 
 ## 🙏 致谢
 
+- [OpenClaw](https://github.com/nicepkg/openclaw) - 多 Agent 管理平台，提供独立工作区、SOUL.md、subagent 白名单
 - [LangChain](https://github.com/langchain-ai/langchain)
 - [LangGraph](https://github.com/langchain-ai/langgraph)
 - [FastAPI](https://fastapi.tiangolo.com/)

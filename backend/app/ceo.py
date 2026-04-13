@@ -5,8 +5,20 @@ from app.core.llm import get_llm
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 import os
 
-# Initialize LLM using centralized config
-llm = get_llm()
+# Initialize LLM lazily to avoid crash when LLM_BACKEND=openclaw and no API key
+_ceo_llm = None
+
+
+def _get_ceo_llm():
+    global _ceo_llm
+    if _ceo_llm is None:
+        _ceo_llm = get_llm()
+    if _ceo_llm is None:
+        raise RuntimeError(
+            "LLM not available. analyze_intent_node requires OPENAI_API_KEY "
+            "even when LLM_BACKEND=openclaw."
+        )
+    return _ceo_llm
 
 # --- Node Definitions ---
 
@@ -16,6 +28,7 @@ from app.utils.labels import format_department_plan, get_department_label
 from app.utils.streaming import stream_llm_text
 from app.utils.agent_knowledge import resolve_agent_prompt
 from app.utils.messages import get_history_messages
+from app.core.backend_selector import use_openclaw
 from app.agent_config import agent_config_service
 
 async def analyze_intent_node(state: AgentState) -> Dict[str, Any]:
@@ -60,7 +73,7 @@ async def analyze_intent_node(state: AgentState) -> Dict[str, Any]:
 
     # Use streaming for real-time output
     response_text = await stream_llm_text(
-        llm=llm,
+        llm=_get_ceo_llm(),
         prompt=messages,
         state=state,
         node_name="analyze_intent",
@@ -188,15 +201,15 @@ async def summarize_result_node(state: AgentState) -> Dict[str, Any]:
     summary_prompt = f"""
     你是一位公共服务行业公司的 CEO。
     各职能部门（{', '.join(get_department_label(item) for item in plan)}）已经完成了以下任务：{intent}。
-    
+
     请根据各部门的协作情况，输出一份简洁的【CEO 任务总结】。
-    
+
     要求：
     1. 语气专业、果断，具有领导力。
     2. 严禁包含任何代码、JSON、PRD 文档原文或技术细节。
     3. 重点说明任务是否完成，以及对客户/业务的价值。
     4. 字数控制在 150 字以内。
-    
+
     格式示例：
     🏢 CEO 任务总结
     ━
@@ -204,14 +217,24 @@ async def summarize_result_node(state: AgentState) -> Dict[str, Any]:
     ━
     🏁 指令已闭环执行。
     """
-    
-    summary_text = await stream_llm_text(
-        llm=llm,
-        prompt=summary_prompt,
-        state=state,
-        node_name="summarize_result",
-        active_agent="CEO 总智能体",
-    )
+
+    if use_openclaw("CEO"):
+        from app.utils.openclaw_streaming import stream_openclaw_text
+        summary_text = await stream_openclaw_text(
+            agent_id="org_ceo",
+            message=summary_prompt,
+            state=state,
+            node_name="summarize_result",
+            active_agent="CEO 总智能体",
+        )
+    else:
+        summary_text = await stream_llm_text(
+            llm=_get_ceo_llm(),
+            prompt=summary_prompt,
+            state=state,
+            node_name="summarize_result",
+            active_agent="CEO 总智能体",
+        )
     
     return {
         "messages": [AIMessage(content=summary_text)],

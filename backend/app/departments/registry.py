@@ -15,7 +15,9 @@ from app.utils.agent_knowledge import (
     resolve_system_prompt,
     resolve_user_prompt,
 )
+from app.utils.agent_skills import inject_skills_into_prompt
 from app.utils.streaming import stream_llm_text
+from app.core.backend_selector import use_openclaw
 from app.agent_config import agent_config_service
 
 # ---------------------------------------------------------------------------
@@ -222,14 +224,37 @@ SUB_AGENT_CONFIGS: Dict[str, Dict[str, Any]] = {
 # ---------------------------------------------------------------------------
 # 子智能体节点工厂
 # ---------------------------------------------------------------------------
-_llm = None
+_LLM_NOT_SET = object()
+_llm = _LLM_NOT_SET
 
 
 def _get_llm():
     global _llm
-    if _llm is None:
+    if _llm is _LLM_NOT_SET:
         _llm = get_llm()
     return _llm
+
+
+def _build_openclaw_message(
+    sys_prompt: str,
+    usr_prompt: str,
+    history: list = None,
+    kb_context: str = "",
+    skills_text: str = "",
+) -> str:
+    """将系统提示词、历史、知识库、技能、用户提示词拼接为单一消息字符串。"""
+    parts = [sys_prompt]
+    if kb_context:
+        parts.append(f"\n\n【参考知识库】\n{kb_context}")
+    if skills_text:
+        parts.append(f"\n\n【已装载技能】\n{skills_text}")
+    if history:
+        parts.append("\n\n【对话历史】")
+        for msg in history:
+            role = "用户" if getattr(msg, "type", "") == "human" else "助手"
+            parts.append(f"{role}: {msg.content}")
+    parts.append(f"\n\n【用户指令】\n{usr_prompt}")
+    return "\n".join(parts)
 
 
 def create_sub_agent_node(agent_id: str):
@@ -267,6 +292,9 @@ def create_sub_agent_node(agent_id: str):
         sys_prompt = resolve_system_prompt(agent_id, query=query_for_kb)
         sys_prompt, kb_names = inject_knowledge_into_prompt(agent_id, query_for_kb, sys_prompt)
 
+        # 技能注入
+        sys_prompt, skill_names = inject_skills_into_prompt(agent_id, sys_prompt)
+
         # 构建用户提示词
         usr_prompt = resolve_user_prompt(agent_id, query=query_content)
 
@@ -276,17 +304,30 @@ def create_sub_agent_node(agent_id: str):
 
         messages = [SystemMessage(content=sys_prompt), *history, HumanMessage(content=usr_prompt)]
 
-        content = await stream_llm_text(
-            llm=llm,
-            prompt=messages,
-            state=state,
-            node_name=agent_id,
-            active_agent=display_name,
-            prefix=prefix,
-        )
+        if use_openclaw(agent_id):
+            from app.utils.openclaw_streaming import stream_openclaw_text
+            oc_message = _build_openclaw_message(sys_prompt, usr_prompt, history)
+            content = await stream_openclaw_text(
+                agent_id=f"org_{agent_id}",
+                message=oc_message,
+                state=state,
+                node_name=agent_id,
+                active_agent=display_name,
+                prefix=prefix,
+            )
+        else:
+            content = await stream_llm_text(
+                llm=llm,
+                prompt=messages,
+                state=state,
+                node_name=agent_id,
+                active_agent=display_name,
+                prefix=prefix,
+            )
 
         # 构建 results
         kb_note = f"（已参考{'、'.join(kb_names)}）" if kb_names else ""
+        skill_note = f"（已装载技能{'、'.join(skill_names)}）" if skill_names else ""
         results = {}
         if custom_results and agent_id == "generate_content":
             results = {
@@ -303,7 +344,7 @@ def create_sub_agent_node(agent_id: str):
             "messages": [AIMessage(content=content)],
             "results": results,
             "active_agent": display_name,
-            "execution_log": [{"agent": display_name, "status": f"{log_status}{kb_note}", "department": department}],
+            "execution_log": [{"agent": display_name, "status": f"{log_status}{kb_note}{skill_note}", "department": department}],
             "next_step": next_step,
         }
 

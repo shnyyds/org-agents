@@ -1,9 +1,53 @@
 {
   "configs": {
     "MARKET": {
+      "name": "市场智脑market mind",
+      "description": "",
+      "system_prompt": "",
+      "user_prompt": "",
+      "context_turns": 3
+    },
+    "TECH": {
       "name": "",
       "description": "",
-      "system_prompt": ""
+      "system_prompt": "",
+      "user_prompt": "",
+      "context_turns": 3
+    },
+    "SALES": {
+      "name": "销售领航saleslpoilot",
+      "description": "",
+      "system_prompt": "",
+      "user_prompt": "",
+      "context_turns": 3
+    },
+    "REPAIR": {
+      "name": "维修大师ServiceMlaster",
+      "description": "",
+      "system_prompt": "",
+      "user_prompt": "",
+      "context_turns": 3
+    },
+    "CS": {
+      "name": "客户中心ClientLink",
+      "description": "",
+      "system_prompt": "",
+      "user_prompt": "",
+      "context_turns": 3
+    },
+    "USER": {
+      "name": "智享家SmartLife",
+      "description": "",
+      "system_prompt": "",
+      "user_prompt": "",
+      "context_turns": 3
+    },
+    "CEO": {
+      "name": "万象智团OrgAgents",
+      "description": "",
+      "system_prompt": "",
+      "user_prompt": "",
+      "context_turns": 3
     }
   }
 }

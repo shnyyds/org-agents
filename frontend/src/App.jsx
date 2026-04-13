@@ -29,6 +29,10 @@ import {
   FileText,
   SlidersHorizontal,
   Square,
+  Wand2,
+  Trash2,
+  ToggleLeft,
+  ToggleRight,
 } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -37,7 +41,7 @@ const KB_FILE_ACCEPT = '.txt,.md,.markdown,.mdx,.csv,.json,.html,.htm,.vtt,.prop
 const KB_TEXT_PREVIEW_EXTENSIONS = new Set(['txt', 'md', 'markdown', 'mdx', 'csv', 'json', 'html', 'htm', 'vtt', 'properties']);
 
 const DEPARTMENTS = [
-  { id: 'CEO', name: 'CEO 总智能体', icon: Building2, summary: '跨部门总控与任务拆解' },
+  { id: 'CEO', name: '万象智团OrgAgents', icon: Building2, summary: '跨部门总控与任务拆解' },
   { id: 'MARKET', name: '市场部部长', icon: BarChart3, summary: '需求分析与宣传内容编排' },
   { id: 'TECH', name: '星核StarCore', icon: Code2, summary: '产品、开发、测试、运维编排' },
   { id: 'SALES', name: '业务部部长', icon: Briefcase, summary: '服务咨询、方案设计、实施计划' },
@@ -47,7 +51,7 @@ const DEPARTMENTS = [
 ];
 
 const DEPARTMENT_LABEL_MAP = {
-  CEO: 'CEO 总智能体',
+  CEO: '万象智团OrgAgents',
   MARKET: '市场部部长',
   TECH: '星核StarCore',
   SALES: '业务部部长',
@@ -73,6 +77,40 @@ const DEPARTMENT_NAME_TO_CODE = {
   客服部: 'CS',
   用户端: 'USER',
 };
+
+const APP_MODE = import.meta.env.VITE_APP_MODE || 'full';
+
+const APP_CONFIGS = {
+  orgagents: {
+    brand: '万象智团OrgAgents',
+    excludeDepts: new Set(['TECH']),
+    showCeo: true,
+    defaultTarget: 'CEO',
+    defaultType: 'orchestrator',
+  },
+  starcore: {
+    brand: '星核StarCore',
+    onlyDepts: new Set(['TECH']),
+    showCeo: false,
+    defaultTarget: 'TECH',
+    defaultType: 'orchestrator',
+  },
+  full: {
+    brand: '万象智团OrgAgents',
+    excludeDepts: new Set(),
+    showCeo: true,
+    defaultTarget: 'CEO',
+    defaultType: 'orchestrator',
+  },
+};
+
+const appCfg = APP_CONFIGS[APP_MODE] || APP_CONFIGS.full;
+
+const MODE_DEPARTMENTS = DEPARTMENTS.filter((d) => {
+  if (d.id === 'CEO') return appCfg.showCeo;
+  if (appCfg.onlyDepts) return appCfg.onlyDepts.has(d.id);
+  return !appCfg.excludeDepts.has(d.id);
+});
 
 const GUIDE_DEMO_STEPS = [
   {
@@ -113,6 +151,27 @@ const GUIDE_DEMO_FLASH_LINES = [
   '问题诊断专家已完成问题推断并回写风险建议',
   '运维人员智能体进入现场闭环处理，等待 CEO 汇总',
 ];
+
+// Edict pipeline: detect stage from structured markers in streamed content
+const EDICT_STAGE_MARKERS = [
+  { marker: '🌟 星核StarCore·任务完成报告', stage: 'completed' },
+  { marker: '📋 首席助理', stage: 'chief_assistant' },
+  { marker: '📋 策略中心', stage: 'strategy_hub' },
+  { marker: '🔍 评审委', stage: 'review_board' },
+  { marker: '📮 星核StarCore·技术执行报告', stage: 'tech_lead_summary' },
+  { marker: '📮 星核·任务令', stage: 'tech_lead_dispatch' },
+  { marker: '📮 蓝图BlueForm', stage: 'product' },
+  { marker: '📮 灵码SmartCode', stage: 'developer' },
+  { marker: '📮 检博士CheckDoc', stage: 'tester' },
+  { marker: '📮 运小盾OpsShield', stage: 'devops' },
+];
+
+function detectEdictStage(text) {
+  for (const { marker, stage } of EDICT_STAGE_MARKERS) {
+    if (text.includes(marker)) return stage;
+  }
+  return null;
+}
 
 function findSubAgentMeta(registry, agentId) {
   for (const [deptId, agents] of Object.entries(registry)) {
@@ -174,7 +233,7 @@ function buildExecutionTree(conversation, registry) {
 
   for (const log of conversation.executionLog || []) {
     if (conversation.targetAgent === 'CEO') {
-      if (log.agent === 'CEO 总智能体' && log.status?.includes('正在调派')) {
+      if (log.agent === '万象智团OrgAgents' && log.status?.includes('正在调派')) {
         const match = log.status.match(/正在调派\s+(.+?)\s+执行任务/);
         if (match) {
           const deptCode = DEPARTMENT_NAME_TO_CODE[match[1]] || match[1];
@@ -315,7 +374,7 @@ function buildConversationMeta(registry, targetAgent, targetType, departmentHint
 
   if (targetAgent === 'CEO') {
     const ceoCfg = leadCfg.CEO;
-    const ceoName = (ceoCfg && ceoCfg.name) || 'CEO 总智能体';
+    const ceoName = (ceoCfg && ceoCfg.name) || '万象智团OrgAgents';
     return {
       label: ceoName,
       subtitle: (ceoCfg && ceoCfg.description) || '跨部门编排',
@@ -331,6 +390,16 @@ function buildConversationMeta(registry, targetAgent, targetType, departmentHint
     const deptCfg = leadCfg[targetAgent];
     const deptName = (deptCfg && deptCfg.name) || dept?.name || targetAgent;
     const deptSummary = (deptCfg && deptCfg.description) || dept?.summary || '部门内部编排';
+    // StarCore edict mode: entry point is ChiefAssistant
+    if (targetAgent === 'TECH') {
+      return {
+        label: '首席助理ChiefAssistant',
+        subtitle: deptSummary,
+        department: targetAgent,
+        modeLabel: 'Edict 流水线模式',
+        greeting: '你好，我是首席助理。你可以直接告诉我你的需求，我会驱动策略中心、评审委、星核部长和各子智能体为你完成任务。闲聊也可以哦。',
+      };
+    }
     return {
       label: deptName,
       subtitle: deptSummary,
@@ -528,7 +597,17 @@ const TASK_PHASE_CONFIG = {
   dispatch_execution: { label: '执行中', color: 'bg-sky-100 text-sky-700 border-sky-200' },
   test_reflow: { label: '检测回流', color: 'bg-orange-100 text-orange-700 border-orange-200' },
   ops_finish: { label: '运维收尾', color: 'bg-indigo-100 text-indigo-700 border-indigo-200' },
-  completed: { label: '已完成', color: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
+  completed: { label: '任务完成', color: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
+  // Edict pipeline stages
+  chief_assistant: { label: '首席助理处理中', color: 'bg-blue-100 text-blue-700 border-blue-200' },
+  strategy_hub: { label: '策略中心规划中', color: 'bg-violet-100 text-violet-700 border-violet-200' },
+  review_board: { label: '评审委审议中', color: 'bg-amber-100 text-amber-700 border-amber-200' },
+  tech_lead_dispatch: { label: '星核派发执行中', color: 'bg-sky-100 text-sky-700 border-sky-200' },
+  tech_lead_summary: { label: '星核汇总中', color: 'bg-sky-100 text-sky-700 border-sky-200' },
+  product: { label: '产品设计中', color: 'bg-pink-100 text-pink-700 border-pink-200' },
+  developer: { label: '开发中', color: 'bg-cyan-100 text-cyan-700 border-cyan-200' },
+  tester: { label: '质量检测中', color: 'bg-orange-100 text-orange-700 border-orange-200' },
+  devops: { label: '部署规划中', color: 'bg-indigo-100 text-indigo-700 border-indigo-200' },
 };
 
 const EXECUTOR_NAMES = {
@@ -556,6 +635,105 @@ function TaskPhaseBar({ taskPhase, requirementConfirmationStatus, currentExecuto
       <span>{config.label}</span>
       {executorLabel && taskPhase === 'dispatch_execution' && (
         <span className="text-xs font-medium opacity-70">({executorLabel})</span>
+      )}
+    </div>
+  );
+}
+
+// Edict pipeline flow visualization
+const EDICT_PIPELINE_NODES = [
+  { id: 'chief_assistant', label: '首席助理', icon: '📋', desc: '需求分拣' },
+  { id: 'strategy_hub', label: '策略中心', icon: '📋', desc: '计划制定' },
+  { id: 'review_board', label: '评审委', icon: '🔍', desc: '审核把关' },
+  { id: 'tech_lead_dispatch', label: '星核StarCore', icon: '📮', desc: '任务派发' },
+];
+
+const EDICT_SUB_NODES = [
+  { id: 'product', label: '蓝图BlueForm', icon: '📮' },
+  { id: 'developer', label: '灵码SmartCode', icon: '📮' },
+  { id: 'tester', label: '检博士CheckDoc', icon: '📮' },
+  { id: 'devops', label: '运小盾OpsShield', icon: '📮' },
+];
+
+// Which pipeline stages count as "active or done" for each node
+const EDICT_STAGE_MAP = {
+  chief_assistant: ['chief_assistant'],
+  strategy_hub: ['strategy_hub'],
+  review_board: ['review_board'],
+  tech_lead_dispatch: ['tech_lead_dispatch', 'tech_lead_summary', 'product', 'developer', 'tester', 'devops'],
+};
+
+function getNodeStatus(nodeId, currentPhase) {
+  if (!currentPhase || currentPhase === 'idle') return 'idle';
+  // Build ordered list of all stages
+  const allStages = ['chief_assistant', 'strategy_hub', 'review_board', 'tech_lead_dispatch', 'product', 'developer', 'tester', 'devops', 'tech_lead_summary', 'completed'];
+  const currentIdx = allStages.indexOf(currentPhase);
+  const nodeStages = EDICT_STAGE_MAP[nodeId] || [nodeId];
+  const nodeIndices = nodeStages.map((s) => allStages.indexOf(s)).filter((i) => i >= 0);
+  const minIdx = Math.min(...nodeIndices);
+  const maxIdx = Math.max(...nodeIndices);
+  if (currentPhase === 'completed') return 'done';
+  if (currentIdx >= minIdx && currentIdx <= maxIdx) return 'active';
+  if (currentIdx > maxIdx) return 'done';
+  return 'idle';
+}
+
+function EdictPipelineFlow({ taskPhase }) {
+  return (
+    <div className="space-y-2">
+      <div className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">执行流水线</div>
+      <div className="flex items-center gap-1">
+        {EDICT_PIPELINE_NODES.map((node, i) => {
+          const status = getNodeStatus(node.id, taskPhase);
+          return (
+            <React.Fragment key={node.id}>
+              <div className={`flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs font-semibold transition-all ${
+                status === 'active'
+                  ? 'border-sky-300 bg-sky-50 text-sky-700 shadow-[0_4px_12px_rgba(14,165,233,0.15)]'
+                  : status === 'done'
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                    : 'border-slate-200 bg-slate-50 text-slate-400'
+              }`}>
+                {status === 'active' && <Loader2 size={10} className="animate-spin" />}
+                {status === 'done' && <span className="text-[10px]">✓</span>}
+                <span>{node.label}</span>
+              </div>
+              {i < EDICT_PIPELINE_NODES.length - 1 && (
+                <ChevronRight size={12} className="text-slate-300 shrink-0" />
+              )}
+            </React.Fragment>
+          );
+        })}
+      </div>
+      {/* Sub-agent row under TechLead */}
+      {(taskPhase === 'tech_lead_dispatch' || taskPhase === 'product' || taskPhase === 'developer' || taskPhase === 'tester' || taskPhase === 'devops' || taskPhase === 'tech_lead_summary') && (
+        <div className="ml-6 flex items-center gap-1 pl-2 border-l-2 border-sky-200">
+          {EDICT_SUB_NODES.map((sub, i) => {
+            const isActive = taskPhase === sub.id;
+            const isDone = (() => {
+              const order = ['product', 'developer', 'tester', 'devops'];
+              return order.indexOf(taskPhase) > order.indexOf(sub.id) || taskPhase === 'tech_lead_summary' || taskPhase === 'completed';
+            })();
+            return (
+              <React.Fragment key={sub.id}>
+                <div className={`rounded-lg border px-2 py-1 text-[11px] font-medium transition-all ${
+                  isActive
+                    ? 'border-violet-300 bg-violet-50 text-violet-700'
+                    : isDone
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-600'
+                      : 'border-slate-200 bg-white text-slate-400'
+                }`}>
+                  {isActive && <Loader2 size={9} className="inline animate-spin mr-1" />}
+                  {isDone && <span className="text-[9px] mr-0.5">✓</span>}
+                  {sub.label}
+                </div>
+                {i < EDICT_SUB_NODES.length - 1 && (
+                  <ChevronRight size={10} className="text-slate-300 shrink-0" />
+                )}
+              </React.Fragment>
+            );
+          })}
+        </div>
       )}
     </div>
   );
@@ -1413,13 +1591,218 @@ function KnowledgeBaseManager({ externalSelectedKbId, onSelectedKbChange }) {
   );
 }
 
+function SkillManager({ skills, onRefresh }) {
+  const [selectedSkillId, setSelectedSkillId] = useState(null);
+  const [createForm, setCreateForm] = useState({ name: '', description: '' });
+  const [editForm, setEditForm] = useState({ name: '', description: '', content: '', enabled: true });
+  const [loading, setLoading] = useState(false);
+  const [statusMessage, setStatusMessage] = useState('');
+
+  const selectedSkill = skills.find((s) => s.id === selectedSkillId) || null;
+
+  useEffect(() => {
+    if (selectedSkill) {
+      setEditForm({
+        name: selectedSkill.name,
+        description: selectedSkill.description || '',
+        content: selectedSkill.content || '',
+        enabled: selectedSkill.enabled !== false,
+      });
+    }
+  }, [selectedSkillId, skills]);
+
+  const handleCreate = async () => {
+    if (!createForm.name.trim()) return;
+    setLoading(true);
+    setStatusMessage('');
+    try {
+      const { data } = await axios.post(`${API_URL}/skills`, { name: createForm.name, description: createForm.description });
+      setCreateForm({ name: '', description: '' });
+      await onRefresh();
+      setSelectedSkillId(data.id);
+      setStatusMessage(`技能"${data.name}"已创建`);
+    } catch (err) {
+      setStatusMessage(`创建失败: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!selectedSkillId) return;
+    setLoading(true);
+    setStatusMessage('');
+    try {
+      await axios.put(`${API_URL}/skills/${selectedSkillId}`, editForm);
+      await onRefresh();
+      setStatusMessage('技能已保存');
+    } catch (err) {
+      setStatusMessage(`保存失败: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!selectedSkillId) return;
+    setLoading(true);
+    setStatusMessage('');
+    try {
+      await axios.delete(`${API_URL}/skills/${selectedSkillId}`);
+      setSelectedSkillId(null);
+      await onRefresh();
+      setStatusMessage('技能已删除');
+    } catch (err) {
+      setStatusMessage(`删除失败: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex h-full">
+      {/* Left: skill list + create */}
+      <div className="w-80 border-r border-violet-100 bg-white/60 p-5 overflow-y-auto">
+        <div className="mb-4">
+          <div className="text-sm font-black text-slate-900">技能库管理</div>
+          <div className="mt-1 text-xs text-slate-500">创建和管理可注入到子智能体的技能</div>
+        </div>
+
+        <div className="mb-5 rounded-2xl border border-violet-200 bg-violet-50/50 p-4">
+          <div className="text-xs font-bold text-violet-700 mb-2">新建技能</div>
+          <input
+            value={createForm.name}
+            onChange={(e) => setCreateForm((prev) => ({ ...prev, name: e.target.value }))}
+            placeholder="技能名称"
+            className="mb-2 w-full rounded-xl border border-violet-200 bg-white px-3 py-2 text-sm outline-none focus:border-violet-400"
+          />
+          <input
+            value={createForm.description}
+            onChange={(e) => setCreateForm((prev) => ({ ...prev, description: e.target.value }))}
+            placeholder="简短描述（可选）"
+            className="mb-3 w-full rounded-xl border border-violet-200 bg-white px-3 py-2 text-sm outline-none focus:border-violet-400"
+          />
+          <button
+            onClick={handleCreate}
+            disabled={loading || !createForm.name.trim()}
+            className="w-full rounded-xl bg-[linear-gradient(135deg,#8b5cf6,#7c3aed)] px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+          >
+            创建技能
+          </button>
+        </div>
+
+        <div className="space-y-2">
+          {skills.map((sk) => (
+            <button
+              key={sk.id}
+              onClick={() => setSelectedSkillId(sk.id)}
+              className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
+                selectedSkillId === sk.id
+                  ? 'border-violet-300 bg-violet-50 shadow-[0_8px_20px_rgba(139,92,246,0.12)]'
+                  : 'border-slate-200 bg-white hover:border-violet-200'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-bold text-slate-900">⚡ {sk.name}</div>
+                {sk.enabled === false && (
+                  <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-500">已禁用</span>
+                )}
+              </div>
+              {sk.description && <div className="mt-1 text-xs text-slate-500 line-clamp-2">{sk.description}</div>}
+            </button>
+          ))}
+          {skills.length === 0 && (
+            <div className="rounded-2xl border border-dashed border-violet-200 bg-violet-50/30 px-4 py-6 text-center text-sm text-slate-500">
+              还没有技能，从上方创建第一个
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Right: skill editor */}
+      <section className="flex-1 overflow-y-auto p-6">
+        {selectedSkill ? (
+          <div className="mx-auto max-w-3xl space-y-5">
+            {statusMessage && (
+              <div className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-700">{statusMessage}</div>
+            )}
+            <div>
+              <label className="text-xs font-bold text-slate-600">技能名称</label>
+              <input
+                value={editForm.name}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))}
+                className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-violet-300"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-bold text-slate-600">描述</label>
+              <input
+                value={editForm.description}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, description: e.target.value }))}
+                placeholder="技能用途简述"
+                className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-violet-300"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-bold text-slate-600">技能内容 / 指令</label>
+              <div className="mt-1 text-[11px] text-slate-400">这段内容会以 XML 格式注入到子智能体的系统提示词中</div>
+              <textarea
+                value={editForm.content}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, content: e.target.value }))}
+                placeholder="在此编写技能指令、规范或参考文档..."
+                rows={14}
+                className="mt-2 w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 font-mono outline-none focus:border-violet-300"
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <button
+                  onClick={() => setEditForm((prev) => ({ ...prev, enabled: !prev.enabled }))}
+                  className="text-violet-600"
+                >
+                  {editForm.enabled ? <ToggleRight size={28} /> : <ToggleLeft size={28} className="text-slate-400" />}
+                </button>
+                <span className="text-sm font-semibold text-slate-700">{editForm.enabled ? '已启用' : '已禁用'}</span>
+              </label>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={handleSave}
+                disabled={loading}
+                className="rounded-2xl bg-[linear-gradient(135deg,#8b5cf6,#7c3aed)] px-6 py-3 text-sm font-black text-white shadow-[0_12px_24px_rgba(139,92,246,0.18)] disabled:opacity-50"
+              >
+                {loading ? '保存中...' : '保存技能'}
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={loading}
+                className="rounded-2xl border border-red-200 bg-red-50 px-5 py-3 text-sm font-bold text-red-600 hover:bg-red-100 disabled:opacity-50"
+              >
+                <span className="inline-flex items-center gap-1"><Trash2 size={14} /> 删除</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex h-full items-center justify-center">
+            <div className="text-center">
+              <Wand2 size={48} className="mx-auto text-violet-300" />
+              <div className="mt-4 text-lg font-bold text-slate-400">选择或创建一个技能</div>
+              <div className="mt-2 text-sm text-slate-400">从左侧列表选择技能进行编辑</div>
+            </div>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
 function App() {
   // --- 单部门模式：解析 URL 参数 ?mode=department&dept=TECH ---
   const urlParams = useMemo(() => new URLSearchParams(window.location.search), []);
   const standaloneDept = useMemo(() => {
     if (urlParams.get('mode') === 'department') {
       const dept = (urlParams.get('dept') || '').toUpperCase();
-      return DEPARTMENTS.find((d) => d.id === dept && d.id !== 'CEO') || null;
+      return MODE_DEPARTMENTS.find((d) => d.id === dept && d.id !== 'CEO') || null;
     }
     return null;
   }, [urlParams]);
@@ -1427,30 +1810,36 @@ function App() {
   const standaloneBrand = urlParams.get('brand') || (standaloneDept ? `${standaloneDept.name}智能助手` : '');
 
   const visibleDepartments = useMemo(
-    () => (isStandaloneMode ? DEPARTMENTS.filter((d) => d.id === standaloneDept.id) : DEPARTMENTS),
+    () => (isStandaloneMode ? MODE_DEPARTMENTS.filter((d) => d.id === standaloneDept.id) : MODE_DEPARTMENTS),
     [isStandaloneMode, standaloneDept]
   );
 
   const [appMode, setAppMode] = useState('agent');
   const [registry, setRegistry] = useState({});
   const [knowledgeBases, setKnowledgeBases] = useState([]);
+  const [skills, setSkills] = useState([]);
   const [selectedKnowledgeBaseId, setSelectedKnowledgeBaseId] = useState(null);
   const [agentKbConfig, setAgentKbConfig] = useState({ open: false, agent: null, selectedKbIds: [] });
-  const [agentEditConfig, setAgentEditConfig] = useState({ open: false, agentId: null, agentType: null, deptId: null, name: '', description: '', system_prompt: '', context_turns: 3, selectedKbIds: [], saving: false });
+  const [agentEditConfig, setAgentEditConfig] = useState({ open: false, agentId: null, agentType: null, deptId: null, name: '', description: '', system_prompt: '', context_turns: 3, selectedKbIds: [], selectedSkillIds: [], saving: false });
   const [input, setInput] = useState('');
-  const [expandedDept, setExpandedDept] = useState(isStandaloneMode ? standaloneDept.id : '');
+  const [expandedDept, setExpandedDept] = useState(isStandaloneMode ? standaloneDept.id : 'TECH');
   const [showExecutionPanel, setShowExecutionPanel] = useState(true);
-  const [showGuide, setShowGuide] = useState(!isStandaloneMode);
+  const [showGuide, setShowGuide] = useState(() => {
+    if (isStandaloneMode || !appCfg.showCeo) return false;
+    return localStorage.getItem('guide_dismissed') !== '1';
+  });
   const [guideStepIndex, setGuideStepIndex] = useState(0);
   const [conversations, setConversations] = useState(() => {
     if (isStandaloneMode) {
       return [createConversation({}, standaloneDept.id, 'orchestrator', standaloneDept.id)];
     }
-    return [createConversation({}, 'CEO', 'orchestrator', 'CEO')];
+    return [createConversation({}, appCfg.defaultTarget, appCfg.defaultType, appCfg.defaultTarget)];
   });
   const [currentConversationId, setCurrentConversationId] = useState(null);
   const messagesEndRef = useRef(null);
   const abortControllerRef = useRef(null);
+
+  useEffect(() => { document.title = appCfg.brand; }, []);
 
   useEffect(() => {
     axios.get(`${API_URL}/registry`).then((res) => setRegistry(res.data));
@@ -1458,6 +1847,10 @@ function App() {
 
   useEffect(() => {
     axios.get(`${API_URL}/knowledge-bases`).then((res) => setKnowledgeBases(res.data));
+  }, []);
+
+  useEffect(() => {
+    axios.get(`${API_URL}/skills`).then((res) => setSkills(res.data));
   }, []);
 
   useEffect(() => {
@@ -1575,12 +1968,18 @@ function App() {
           const data = JSON.parse(trimmedLine.slice(6));
 
           if (data.type === 'stream') {
+            // Client-side edict stage detection from streamed content
+            const detectedStage = detectEdictStage(data.content || '');
             updateConversation(conversationId, (conversation) => {
+              const stageUpdate = detectedStage && detectedStage !== conversation.taskPhase
+                ? { taskPhase: detectedStage }
+                : {};
               const lastMessage = conversation.messages[conversation.messages.length - 1];
               if (lastMessage && lastMessage.role === 'assistant' && lastMessage.node === data.node && lastMessage.isStreaming) {
                 const newContent = (lastMessage.content || '') + data.content;
                 return {
                   ...conversation,
+                  ...stageUpdate,
                   activeAgent: data.active_agent,
                   messages: [
                     ...conversation.messages.slice(0, -1),
@@ -1590,6 +1989,7 @@ function App() {
               }
               return {
                 ...conversation,
+                ...stageUpdate,
                 activeAgent: data.active_agent,
                 messages: [
                   ...conversation.messages,
@@ -1613,6 +2013,11 @@ function App() {
               }
               return { ...conversation, activeDept: data.current_department || conversation.activeDept, activeAgent: data.active_agent || conversation.activeAgent, executionLog: data.execution_log?.length ? [...conversation.executionLog, ...data.execution_log] : conversation.executionLog, messages };
             });
+          } else if (data.type === 'execution_log_entry') {
+            updateConversation(conversationId, (conversation) => ({
+              ...conversation,
+              executionLog: [...(conversation.executionLog || []), data.entry],
+            }));
           } else if (data.type === 'phase_update') {
             updateConversation(conversationId, (conversation) => ({
               ...conversation,
@@ -1861,6 +2266,11 @@ function App() {
     setKnowledgeBases(data);
   };
 
+  const refreshSkills = async () => {
+    const { data } = await axios.get(`${API_URL}/skills`);
+    setSkills(data);
+  };
+
   const openAgentKbConfig = (sub) => {
     setAgentKbConfig({
       open: true,
@@ -1873,9 +2283,11 @@ function App() {
     try {
       const { data } = await axios.get(`${API_URL}/agent-configs/${agentId}`);
       let kbIds = [];
+      let skillIds = [];
       if (agentType === 'sub') {
         const sub = findSubAgentMeta(registry, agentId);
         kbIds = (sub?.knowledge_bases || []).map((kb) => kb.id);
+        skillIds = (sub?.skills || []).map((s) => s.id);
       }
       setAgentEditConfig({
         open: true,
@@ -1887,6 +2299,7 @@ function App() {
         system_prompt: data.system_prompt || '',
         context_turns: data.context_turns ?? 3,
         selectedKbIds: kbIds,
+        selectedSkillIds: skillIds,
         saving: false,
       });
     } catch {
@@ -1900,6 +2313,7 @@ function App() {
         system_prompt: '',
         context_turns: 3,
         selectedKbIds: [],
+        selectedSkillIds: [],
         saving: false,
       });
     }
@@ -1919,10 +2333,14 @@ function App() {
         await axios.put(`${API_URL}/agent-kb-bindings/${agentEditConfig.agentId}`, {
           kb_ids: agentEditConfig.selectedKbIds,
         });
+        await axios.put(`${API_URL}/agent-skill-bindings/${agentEditConfig.agentId}`, {
+          skill_ids: agentEditConfig.selectedSkillIds,
+        });
       }
       await refreshRegistry();
       await refreshKnowledgeBases();
-      setAgentEditConfig({ open: false, agentId: null, agentType: null, deptId: null, name: '', description: '', system_prompt: '', context_turns: 3, selectedKbIds: [], saving: false });
+      await refreshSkills();
+      setAgentEditConfig({ open: false, agentId: null, agentType: null, deptId: null, name: '', description: '', system_prompt: '', context_turns: 3, selectedKbIds: [], selectedSkillIds: [], saving: false });
     } catch (err) {
       console.error('Save agent config error:', err);
       setAgentEditConfig((prev) => ({ ...prev, saving: false }));
@@ -1958,7 +2376,7 @@ function App() {
                       新手教程
                     </div>
                     <h2 className="mt-4 text-3xl font-black tracking-tight text-slate-900">
-                      OrgAgents — 万象智团多智能体协作系统
+                      {`${appCfg.brand} — 多智能体协作系统`}
                     </h2>
                     <p className="mt-3 text-base leading-7 text-slate-600">
                       这个系统不是“一个机器人做所有事”，而是把一家公司的协作方式抽象成多层智能体网络：
@@ -1967,7 +2385,7 @@ function App() {
                   </div>
 
                   <button
-                    onClick={() => setShowGuide(false)}
+                    onClick={() => { localStorage.setItem('guide_dismissed', '1'); setShowGuide(false); }}
                     className="rounded-2xl border border-slate-200 bg-white p-3 text-slate-400 transition hover:border-slate-300 hover:text-slate-700"
                   >
                     <X size={18} />
@@ -2020,7 +2438,7 @@ function App() {
 
                 <div className="mt-8 flex flex-wrap gap-3">
                   <button
-                    onClick={() => setShowGuide(false)}
+                    onClick={() => { localStorage.setItem('guide_dismissed', '1'); setShowGuide(false); }}
                     className="rounded-2xl bg-[linear-gradient(135deg,#0ea5e9,#2563eb)] px-5 py-3 text-sm font-black text-white shadow-[0_16px_32px_rgba(37,99,235,0.18)] transition hover:-translate-y-0.5"
                   >
                     我知道了，进入系统
@@ -2079,7 +2497,7 @@ function App() {
               <div className="mb-4 flex gap-2">
                 <button
                   onClick={() => setAppMode('agent')}
-                  className={`flex-1 rounded-2xl px-4 py-2 text-sm font-bold transition ${
+                  className={`flex-1 rounded-2xl px-3 py-2 text-xs font-bold transition ${
                     appMode === 'agent'
                       ? 'bg-[linear-gradient(135deg,#0ea5e9,#2563eb)] text-white shadow-[0_12px_24px_rgba(37,99,235,0.18)]'
                       : 'border border-slate-200 bg-white text-slate-600'
@@ -2089,7 +2507,7 @@ function App() {
                 </button>
                 <button
                   onClick={() => setAppMode('knowledge')}
-                  className={`flex-1 rounded-2xl px-4 py-2 text-sm font-bold transition ${
+                  className={`flex-1 rounded-2xl px-3 py-2 text-xs font-bold transition ${
                     appMode === 'knowledge'
                       ? 'bg-[linear-gradient(135deg,#0ea5e9,#2563eb)] text-white shadow-[0_12px_24px_rgba(37,99,235,0.18)]'
                       : 'border border-slate-200 bg-white text-slate-600'
@@ -2097,25 +2515,35 @@ function App() {
                 >
                   知识库管理
                 </button>
+                <button
+                  onClick={() => setAppMode('skills')}
+                  className={`flex-1 rounded-2xl px-3 py-2 text-xs font-bold transition ${
+                    appMode === 'skills'
+                      ? 'bg-[linear-gradient(135deg,#8b5cf6,#7c3aed)] text-white shadow-[0_12px_24px_rgba(139,92,246,0.18)]'
+                      : 'border border-slate-200 bg-white text-slate-600'
+                  }`}
+                >
+                  技能库
+                </button>
               </div>
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-xs font-black uppercase tracking-[0.18em] text-sky-600">快速开始</div>
-                  <div className="mt-2 text-sm font-semibold text-slate-900">{isStandaloneMode ? '两种对话模式' : '三种对话模式'}</div>
+                  <div className="mt-2 text-sm font-semibold text-slate-900">{appCfg.showCeo ? '三种对话模式' : '两种对话模式'}</div>
                 </div>
                 <Sparkles size={18} className="text-sky-500" />
               </div>
               <div className="mt-3 space-y-2 text-xs text-slate-600 leading-5">
-                {isStandaloneMode ? (
+                {appCfg.showCeo ? (
                   <>
-                    <div>1. `部门长`：该部门内部自动编排</div>
-                    <div>2. `子智能体`：直接单聊，不经过部长</div>
+                    <div><span className="font-semibold text-slate-800">CEO</span> — 说出目标，自动识别部门并跨部门协作</div>
+                    <div><span className="font-semibold text-slate-800">部门长</span> — 指定部门，由部长拆解任务并编排执行</div>
+                    <div><span className="font-semibold text-slate-800">子智能体</span> — 点对点直聊，适合处理单一具体问题</div>
                   </>
                 ) : (
                   <>
-                    <div>1. `CEO`：跨部门总控</div>
-                    <div>2. `部门长`：该部门内部自动编排</div>
-                    <div>3. `子智能体`：直接单聊，不经过部长</div>
+                    <div><span className="font-semibold text-slate-800">部门长</span> — 描述需求，自动拆解并调度子智能体</div>
+                    <div><span className="font-semibold text-slate-800">子智能体</span> — 跳过编排，和某个专项能力直接对话</div>
                   </>
                 )}
               </div>
@@ -2125,17 +2553,17 @@ function App() {
                   if (isStandaloneMode) {
                     openConversationForTarget(standaloneDept.id, 'orchestrator', standaloneDept.id);
                   } else {
-                    openConversationForTarget('CEO', 'orchestrator', 'CEO');
+                    openConversationForTarget(appCfg.defaultTarget, appCfg.defaultType, appCfg.defaultTarget);
                   }
                 }}
                 className="flex-1 rounded-2xl bg-[linear-gradient(135deg,#0ea5e9,#2563eb)] px-4 py-3 text-sm font-black text-white transition hover:-translate-y-0.5 hover:shadow-[0_16px_30px_rgba(37,99,235,0.22)]"
               >
                 <span className="inline-flex items-center gap-2">
                   <PlusSquare size={16} />
-                  {isStandaloneMode ? `新建 ${standaloneDept.name} 对话` : '新建 CEO 对话'}
+                  {isStandaloneMode ? `新建 ${standaloneDept.name} 对话` : `新建 ${appCfg.brand} 对话`}
                 </span>
               </button>
-              {!isStandaloneMode && (
+              {!isStandaloneMode && appCfg.showCeo && (
                 <button
                   onClick={() => openAgentEditConfig('CEO', 'lead', 'CEO')}
                   className="rounded-2xl border border-slate-200 bg-white p-3 text-slate-500 transition hover:border-sky-200 hover:text-sky-600"
@@ -2155,6 +2583,16 @@ function App() {
                   <div className="rounded-2xl bg-sky-100 p-3 text-sky-700"><Database size={18} /></div>
                   <div>
                     <div className="text-sm font-bold text-slate-900">知识库模式</div>
+                    <div className="text-xs text-slate-500">左侧只保留模式切换，管理页会在主区域展开</div>
+                  </div>
+                </div>
+              </div>
+            ) : appMode === 'skills' ? (
+              <div className="rounded-[28px] border border-violet-100 bg-white/92 p-5 shadow-[0_18px_40px_rgba(139,92,246,0.10)]">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-2xl bg-violet-100 p-3 text-violet-700"><Wand2 size={18} /></div>
+                  <div>
+                    <div className="text-sm font-bold text-slate-900">技能库模式</div>
                     <div className="text-xs text-slate-500">左侧只保留模式切换，管理页会在主区域展开</div>
                   </div>
                 </div>
@@ -2210,7 +2648,7 @@ function App() {
                         onClick={() => openConversationForTarget(dept.id, 'orchestrator', dept.id)}
                         className="flex-1 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-700 transition hover:bg-sky-100 hover:shadow-[0_10px_24px_rgba(14,165,233,0.12)]"
                       >
-                        新建部门长对话
+                        {dept.id === 'TECH' ? '新建首席助理对话' : '新建部门长对话'}
                       </button>
                       <button
                         onClick={() => openAgentEditConfig(dept.id, 'lead', dept.id)}
@@ -2223,6 +2661,29 @@ function App() {
 
                     {isExpanded && registry[dept.id] && (
                       <div className="mt-4 space-y-2">
+                        {/* Edict pipeline flow for TECH */}
+                        {dept.id === 'TECH' && (
+                          <div className="mb-3 rounded-2xl border border-sky-100 bg-sky-50/50 p-3">
+                            <div className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400 mb-2">编排流水线</div>
+                            <div className="space-y-1.5">
+                              {EDICT_PIPELINE_NODES.map((node, i) => (
+                                <div key={node.id} className="flex items-center gap-2">
+                                  <span className="text-xs">{node.icon}</span>
+                                  <span className="text-xs font-semibold text-slate-700">{node.label}</span>
+                                  <span className="text-[11px] text-slate-400">{node.desc}</span>
+                                  {i < EDICT_PIPELINE_NODES.length - 1 && <span className="text-[10px] text-slate-300 ml-auto">↓</span>}
+                                </div>
+                              ))}
+                              <div className="ml-4 mt-1 flex flex-wrap gap-1.5 border-l-2 border-sky-200 pl-2">
+                                {EDICT_SUB_NODES.map((sub) => (
+                                  <span key={sub.id} className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+                                    {sub.label}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
                         <div className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">子智能体直聊</div>
                         {registry[dept.id].map((sub) => {
                           const active = currentAgentSelection === sub.id;
@@ -2264,6 +2725,19 @@ function App() {
                                   ))}
                                 </div>
                               )}
+
+                              {(sub.skills || []).length > 0 && (
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  {(sub.skills || []).map((sk) => (
+                                    <span
+                                      key={sk.id}
+                                      className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-[11px] font-bold text-violet-700"
+                                    >
+                                      ⚡ {sk.name}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           );
                         })}
@@ -2279,7 +2753,31 @@ function App() {
         </aside>
 
         <main className="flex-1 flex flex-col">
-          {appMode === 'knowledge' ? (
+          {appMode === 'skills' ? (
+            <>
+              <header className="border-b border-violet-100 bg-white/72 px-8 py-6 backdrop-blur-2xl">
+                <div className="flex items-start justify-between gap-6">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-3">
+                      <div className="rounded-2xl bg-[linear-gradient(135deg,#8b5cf6,#7c3aed)] p-3 text-white shadow-[0_18px_40px_rgba(139,92,246,0.18)]">
+                        <Wand2 size={22} />
+                      </div>
+                      <div>
+                        <div className="text-[11px] font-black uppercase tracking-[0.2em] text-violet-600">技能管理</div>
+                        <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-900">技能库</h1>
+                      </div>
+                    </div>
+                    <div className="mt-4 rounded-2xl border border-violet-100 bg-white/90 px-4 py-3 text-sm text-slate-600 shadow-[0_10px_24px_rgba(148,163,184,0.08)]">
+                      技能是注入到子智能体系统提示词中的指令/文档片段，可为智能体赋予特定能力。
+                    </div>
+                  </div>
+                </div>
+              </header>
+              <div className="flex-1 min-h-0">
+                <SkillManager skills={skills} onRefresh={refreshSkills} />
+              </div>
+            </>
+          ) : appMode === 'knowledge' ? (
             <>
               <header className="border-b border-sky-100 bg-white/72 px-8 py-6 backdrop-blur-2xl">
                 <div className="flex items-start justify-between gap-6">
@@ -2367,7 +2865,7 @@ function App() {
                     </div>
                     <div className="relative z-10">
                       <div className="text-[11px] font-black uppercase tracking-[0.18em] text-sky-600">AI Control Core</div>
-                      <div className="mt-1 text-sm font-semibold text-slate-900">{isStandaloneMode ? standaloneBrand : 'OrgAgents 万象智团协作中枢'}</div>
+                      <div className="mt-1 text-sm font-semibold text-slate-900">{isStandaloneMode ? standaloneBrand : `${appCfg.brand} 协作中枢`}</div>
                       <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-500">
                         <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-emerald-400"></span>
                         <span>实时编排中</span>
@@ -2392,20 +2890,24 @@ function App() {
                 <div className="rounded-3xl border border-sky-100 bg-[linear-gradient(145deg,rgba(255,255,255,0.95),rgba(239,246,255,0.92))] px-5 py-4 text-sm text-slate-600 shadow-[0_20px_45px_rgba(148,163,184,0.12)]">
                   <span className="font-bold text-slate-900">怎么用最顺：</span>
                   {isStandaloneMode
-                    ? `想让 ${standaloneDept.name} 自动编排内部流程，就新建部门长对话；想直接问某个岗位，就从左侧展开后新建子智能体直聊。`
-                    : '想跨部门协作就新建 `CEO` 对话；想让某个部门自己安排内部流程，就新建对应 `部门长` 对话；想直接问某个岗位，就从左侧展开部门后新建 `子智能体直聊`。'
+                    ? `直接新建首席助理对话，告诉它你的需求，流水线会自动编排执行；想直接问某个岗位，就从左侧展开后新建子智能体直聊。`
+                    : appCfg.showCeo
+                      ? '想跨部门协作就新建 `CEO` 对话；想让某个部门自己安排内部流程，就新建对应 `部门长` 对话；想直接问某个岗位，就从左侧展开部门后新建 `子智能体直聊`。'
+                      : '想让部门自动编排内部流程，就新建部门长对话；想直接问某个岗位，就从左侧展开后新建子智能体直聊。'
                   }
                 </div>
               </div>
 
               <div className="flex-1 overflow-y-auto px-8 py-8 space-y-7">
-                {/* Task Phase Status Bar */}
+                {/* Task Phase Status Bar / Edict Pipeline Flow */}
                 {currentConversation && currentConversation.taskPhase && currentConversation.taskPhase !== 'idle' && (
-                  <TaskPhaseBar
-                    taskPhase={currentConversation.taskPhase}
-                    requirementConfirmationStatus={currentConversation.requirementConfirmationStatus}
-                    currentExecutor={currentConversation.currentExecutor}
-                  />
+                  currentConversation.targetAgent === 'TECH' && currentConversation.targetType === 'orchestrator'
+                    ? <EdictPipelineFlow taskPhase={currentConversation.taskPhase} />
+                    : <TaskPhaseBar
+                        taskPhase={currentConversation.taskPhase}
+                        requirementConfirmationStatus={currentConversation.requirementConfirmationStatus}
+                        currentExecutor={currentConversation.currentExecutor}
+                      />
                 )}
                 {(currentConversation?.messages || []).map((msg) => (
                   <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -2611,75 +3113,83 @@ function App() {
                         </div>
                       ) : (
                         currentConversation.executionLog.map((log, index) => {
-                          // 根据智能体类型设置不同的样式
-                          const isCEO = log.agent === 'CEO 总智能体';
-                          const isDepartmentLead = log.agent.includes('部长');
-                          const isSubAgent = !isCEO && !isDepartmentLead;
+                          const isLast = index === currentConversation.executionLog.length - 1;
+                          const isStreaming = isLast && currentConversation?.loading;
+
+                          // sub-agents get indented
+                          const SUB_AGENT_STAGES = new Set(['product', 'developer', 'tester', 'devops']);
+                          const isSubAgent = SUB_AGENT_STAGES.has(log.stage);
 
                           const getLogStyle = () => {
-                            if (isCEO) {
-                              return {
-                                border: 'border-sky-300',
-                                bg: 'bg-gradient-to-br from-sky-50 to-blue-50',
-                                icon: '🎯',
-                                iconBg: 'bg-sky-100',
-                                iconColor: 'text-sky-600',
-                                textColor: 'text-sky-700',
-                                badge: 'bg-sky-500 text-white'
-                              };
-                            }
-                            if (isDepartmentLead) {
-                              return {
-                                border: 'border-violet-300',
-                                bg: 'bg-gradient-to-br from-violet-50 to-purple-50',
-                                icon: '🏢',
-                                iconBg: 'bg-violet-100',
-                                iconColor: 'text-violet-600',
-                                textColor: 'text-violet-700',
-                                badge: 'bg-violet-500 text-white'
-                              };
-                            }
+                            if (log.stage === 'chief_assistant') return {
+                              border: 'border-sky-300', bg: 'bg-gradient-to-br from-sky-50 to-blue-50',
+                              icon: '🎯', iconBg: 'bg-sky-100', textColor: 'text-sky-700', badge: 'bg-sky-500 text-white',
+                            };
+                            if (log.stage === 'strategy_hub' || log.stage === 'review_board') return {
+                              border: 'border-violet-300', bg: 'bg-gradient-to-br from-violet-50 to-purple-50',
+                              icon: '🏛️', iconBg: 'bg-violet-100', textColor: 'text-violet-700', badge: 'bg-violet-500 text-white',
+                            };
+                            if (log.stage === 'tech_lead_dispatch' || log.stage === 'tech_lead_summary' || log.stage === 'completed') return {
+                              border: 'border-indigo-300', bg: 'bg-gradient-to-br from-indigo-50 to-blue-50',
+                              icon: '⭐', iconBg: 'bg-indigo-100', textColor: 'text-indigo-700', badge: 'bg-indigo-500 text-white',
+                            };
+                            // sub-agents
+                            const subIcons = { product: '📋', developer: '💻', tester: '🔬', devops: '🛡️' };
                             return {
-                              border: 'border-slate-200',
-                              bg: 'bg-white',
-                              icon: '⚙️',
-                              iconBg: 'bg-slate-100',
-                              iconColor: 'text-slate-600',
-                              textColor: 'text-slate-700',
-                              badge: 'bg-slate-500 text-white'
+                              border: 'border-emerald-200', bg: 'bg-gradient-to-br from-emerald-50 to-teal-50',
+                              icon: subIcons[log.stage] || '⚙️', iconBg: 'bg-emerald-100', textColor: 'text-emerald-700', badge: 'bg-emerald-500 text-white',
                             };
                           };
 
                           const style = getLogStyle();
+                          const durationLabel = log.duration_ms != null
+                            ? (log.duration_ms >= 1000 ? `${(log.duration_ms / 1000).toFixed(1)}s` : `${log.duration_ms}ms`)
+                            : null;
 
                           return (
                             <div
-                              key={`${log.agent}-${index}`}
-                              className={`relative rounded-2xl border ${style.border} ${style.bg} px-4 py-3.5 shadow-sm transition-all hover:shadow-md`}
+                              key={`${log.stage || log.agent}-${index}`}
+                              className={`relative rounded-2xl border ${style.border} ${style.bg} px-4 py-3.5 shadow-sm transition-all hover:shadow-md ${isSubAgent ? 'ml-5' : ''}`}
                             >
+                              {/* sub-agent connector line */}
+                              {isSubAgent && (
+                                <div className="absolute -left-5 top-1/2 h-px w-5 bg-slate-300" />
+                              )}
+
                               {/* 序号标识 */}
                               <div className={`absolute -left-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full ${style.badge} text-[10px] font-black shadow-sm`}>
-                                {index + 1}
+                                {isStreaming ? (
+                                  <svg className="animate-spin h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                                  </svg>
+                                ) : (index + 1)}
                               </div>
+
+                              {/* 耗时 badge */}
+                              {durationLabel && !isStreaming && (
+                                <div className="absolute right-3 top-2 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                                  {durationLabel}
+                                </div>
+                              )}
 
                               {/* 图标和智能体名称 */}
                               <div className="flex items-start gap-3">
-                                <div className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl ${style.iconBg} text-base`}>
+                                <div className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl ${style.iconBg} text-base ${isStreaming ? 'animate-pulse' : ''}`}>
                                   {style.icon}
                                 </div>
-                                <div className="flex-1 min-w-0">
+                                <div className="flex-1 min-w-0 pr-10">
                                   <div className={`text-sm font-bold ${style.textColor}`}>
                                     {log.agent}
                                   </div>
-                                  <div className="mt-1.5 text-xs leading-relaxed text-slate-600">
-                                    {log.status}
+                                  <div className="mt-0.5 text-xs text-slate-500">
+                                    {isStreaming ? '处理中…' : log.status}
                                   </div>
 
-                                  {/* 部门标识 */}
-                                  {log.department && (
-                                    <div className="mt-2 inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
-                                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-slate-400"></span>
-                                      {log.department}
+                                  {/* 摘要文本 */}
+                                  {log.summary && !isStreaming && (
+                                    <div className="mt-1.5 line-clamp-2 text-[11px] leading-relaxed text-slate-500">
+                                      {log.summary}
                                     </div>
                                   )}
                                 </div>
@@ -2787,11 +3297,11 @@ function App() {
                   {agentEditConfig.agentType === 'sub' ? '子智能体配置' : agentEditConfig.agentId === 'CEO' ? 'CEO 配置' : '部门长配置'} — {agentEditConfig.name || agentEditConfig.agentId}
                 </div>
                 <div className="mt-1 text-xs text-slate-500">
-                  {agentEditConfig.agentType === 'sub' ? '配置名称、描述、提示词和知识库绑定' : '配置名称、描述和系统提示词'}
+                  {agentEditConfig.agentType === 'sub' ? '配置名称、描述、提示词、知识库和技能绑定' : '配置名称、描述和系统提示词'}
                 </div>
               </div>
               <button
-                onClick={() => setAgentEditConfig({ open: false, agentId: null, agentType: null, deptId: null, name: '', description: '', system_prompt: '', context_turns: 3, selectedKbIds: [], saving: false })}
+                onClick={() => setAgentEditConfig({ open: false, agentId: null, agentType: null, deptId: null, name: '', description: '', system_prompt: '', context_turns: 3, selectedKbIds: [], selectedSkillIds: [], saving: false })}
                 className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600"
               >
                 关闭
@@ -2887,11 +3397,54 @@ function App() {
                   </div>
                 </div>
               )}
+
+              {agentEditConfig.agentType === 'sub' && (
+                <div>
+                  <label className="text-xs font-bold text-violet-600">技能绑定</label>
+                  <div className="mt-2 grid gap-2">
+                    {skills.length === 0 ? (
+                      <div className="rounded-2xl border border-dashed border-violet-200 bg-violet-50/50 px-4 py-4 text-sm text-slate-500">
+                        当前还没有技能，先去技能库中新建。
+                      </div>
+                    ) : (
+                      skills.filter((s) => s.enabled).map((sk) => {
+                        const checked = agentEditConfig.selectedSkillIds.includes(sk.id);
+                        return (
+                          <label
+                            key={sk.id}
+                            className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-4 py-3 transition ${
+                              checked ? 'border-violet-300 bg-violet-50' : 'border-slate-200 bg-white'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => {
+                                setAgentEditConfig((prev) => ({
+                                  ...prev,
+                                  selectedSkillIds: e.target.checked
+                                    ? [...prev.selectedSkillIds, sk.id]
+                                    : prev.selectedSkillIds.filter((item) => item !== sk.id),
+                                }));
+                              }}
+                              className="mt-1 h-4 w-4 rounded border-slate-300 text-violet-600 accent-violet-600"
+                            />
+                            <div>
+                              <div className="text-sm font-bold text-slate-900">⚡ {sk.name}</div>
+                              <div className="mt-1 text-xs text-slate-500">{sk.description || '暂无描述'}</div>
+                            </div>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="mt-6 flex justify-end gap-3">
               <button
-                onClick={() => setAgentEditConfig({ open: false, agentId: null, agentType: null, deptId: null, name: '', description: '', system_prompt: '', context_turns: 3, selectedKbIds: [], saving: false })}
+                onClick={() => setAgentEditConfig({ open: false, agentId: null, agentType: null, deptId: null, name: '', description: '', system_prompt: '', context_turns: 3, selectedKbIds: [], selectedSkillIds: [], saving: false })}
                 className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700"
               >
                 取消

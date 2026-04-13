@@ -4,7 +4,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:orgagents": "VITE_APP_MODE=orgagents vite",
+    "dev:starcore": "VITE_APP_MODE=starcore vite",
     "build": "vite build",
+    "build:orgagents": "VITE_APP_MODE=orgagents vite build --outDir dist-orgagents",
+    "build:starcore": "VITE_APP_MODE=starcore vite build --outDir dist-starcore",
     "preview": "vite preview"
   },
   "dependencies": {
